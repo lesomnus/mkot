@@ -15,14 +15,36 @@ type DebugExporterConfig struct {
 	Enabled bool
 }
 
-func (c *DebugExporterConfig) tracer(ctx context.Context) (trace.SpanExporter, error) {
-	return stdouttrace.New()
+func (c *DebugExporterConfig) Tracer(ctx context.Context) (trace.SpanExporter, func(ctx context.Context) error, error) {
+	v, err := stdouttrace.New()
+	if err != nil {
+		return nil, nil, err
+	}
+	return v, nil, nil
 }
 
-func (c *DebugExporterConfig) meter(ctx context.Context) (metric.Exporter, error) {
-	return stdoutmetric.New()
+func (c *DebugExporterConfig) Meter(ctx context.Context) (metric.Exporter, func(ctx context.Context) error, error) {
+	v, err := stdoutmetric.New()
+	if err != nil {
+		return nil, nil, err
+	}
+	return v, nil, nil
 }
 
-func (c *DebugExporterConfig) logger(ctx context.Context) (log.Exporter, error) {
-	return stdoutlog.New()
+func (c *DebugExporterConfig) Reader(ctx context.Context) (metric.Reader, func(ctx context.Context) error, error) {
+	return nil, nil, nil
+}
+
+func (c *DebugExporterConfig) Logger(ctx context.Context) (log.Exporter, func(ctx context.Context) error, error) {
+	v, err := stdoutlog.New()
+	if err != nil {
+		return nil, nil, err
+	}
+	return v, nil, nil
+}
+
+func init() {
+	DefaultExporterRegistry.Set("debug", ExporterConfigDecodable[*DebugExporterConfig](func() *DebugExporterConfig {
+		return &DebugExporterConfig{}
+	}))
 }

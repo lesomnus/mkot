@@ -2,7 +2,7 @@
 	"name": "lesomnus.mkot",
 	"dockerComposeFile": "docker-compose.yaml",
 	"service": "dev",
-	"workspaceFolder": "/workspace/${workspaceFolderBasename}",
+	"workspaceFolder": "/workspace/mkot",
 	"customizations": {
 		"vscode": {
 			"extensions": [

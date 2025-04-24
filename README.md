@@ -21,14 +21,14 @@ processors:
       - os
       - process
   
-  exporters:
-    otlp:
-      endpoint: creedthoughts.gov
+exporters:
+  otlp:
+    endpoint: creedthoughts.gov
 
-  providers:
-    my_provider_name:
-      processors: [batcher/foo, resource]
-      exporters: [otlp]
+providers:
+  tracer:
+    processors: [batcher/foo, resource]
+    exporters: [otlp]
 ```
 
 You can:
@@ -49,9 +49,17 @@ func main() {
 		panic(err)
 	}
 
+	ctx := context.TODO()
 	resolver := mkot.Make(conf)
-	tracer_provider, err := resolver.Tracer(context.TODO(), "default")
+	defer resolver.Shutdown(ctx)
+
+	tracer_provider, err := resolver.Tracer(ctx, "")
 	if err != nil {
+		panic(err)
+	}
+
+	// Starts exporters.
+	if err := resolver.Start(ctx); err != nil {
 		panic(err)
 	}
 

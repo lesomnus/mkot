@@ -24,7 +24,7 @@ services:
         target: /workspaces
       - type: bind
         source: ..
-        target: /workspace/${workspaceFolderBasename}
+        target: /workspace/mkot
 
 volumes:
   mod.cache.go.dev:

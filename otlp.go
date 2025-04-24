@@ -30,9 +30,10 @@ type OtlpExporterConfig struct {
 	Headers map[string]string
 }
 
-func (c *OtlpExporterConfig) tracer(ctx context.Context) (trace.SpanExporter, error) {
+func (c *OtlpExporterConfig) Tracer(ctx context.Context) (trace.SpanExporter, func(ctx context.Context) error, error) {
 	opts := c.traceOpts()
-	return otlptracegrpc.NewUnstarted(opts...), nil
+	v := otlptracegrpc.NewUnstarted(opts...)
+	return v, v.Start, nil
 }
 
 func (c *OtlpExporterConfig) traceOpts() []otlptracegrpc.Option {
@@ -50,9 +51,14 @@ func (c *OtlpExporterConfig) traceOpts() []otlptracegrpc.Option {
 	return opts
 }
 
-func (c *OtlpExporterConfig) meter(ctx context.Context) (metric.Exporter, error) {
+func (c *OtlpExporterConfig) Meter(ctx context.Context) (metric.Exporter, func(ctx context.Context) error, error) {
 	opts := c.metricOpts()
-	return otlpmetricgrpc.New(context.TODO(), opts...)
+	v, err := otlpmetricgrpc.New(ctx, opts...)
+	return v, nil, err
+}
+
+func (c *OtlpExporterConfig) Reader(ctx context.Context) (metric.Reader, func(ctx context.Context) error, error) {
+	return nil, nil, nil
 }
 
 func (c *OtlpExporterConfig) metricOpts() []otlpmetricgrpc.Option {
@@ -69,9 +75,13 @@ func (c *OtlpExporterConfig) metricOpts() []otlpmetricgrpc.Option {
 	return opts
 }
 
-func (c *OtlpExporterConfig) logger(ctx context.Context) (log.Exporter, error) {
+func (c *OtlpExporterConfig) Logger(ctx context.Context) (log.Exporter, func(ctx context.Context) error, error) {
 	opts := c.logOpts()
-	return otlploggrpc.New(ctx, opts...)
+	v, err := otlploggrpc.New(ctx, opts...)
+	if err != nil {
+		return nil, nil, err
+	}
+	return v, nil, nil
 }
 
 func (c *OtlpExporterConfig) logOpts() []otlploggrpc.Option {
@@ -80,4 +90,10 @@ func (c *OtlpExporterConfig) logOpts() []otlploggrpc.Option {
 	}
 
 	return opts
+}
+
+func init() {
+	DefaultExporterRegistry.Set("otlp", ExporterConfigDecodable[*OtlpExporterConfig](func() *OtlpExporterConfig {
+		return &OtlpExporterConfig{}
+	}))
 }

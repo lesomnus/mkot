@@ -66,7 +66,7 @@ exporters:
       baz: qux
 
 providers:
-  default:
+  tracer:
     processors: [batcher/foo, resource]
     exporters: [debug, otlp]
 `
@@ -175,7 +175,7 @@ providers:
 		"baz": "qux",
 	}, otlp_exporter.Headers)
 
-	default_provider := c.Providers["default"]
+	default_provider := c.Providers["tracer"]
 	require.Equal([]mkot.Id{"batcher/foo", "resource"}, default_provider.Processors)
 	require.Equal([]mkot.Id{"debug", "otlp"}, default_provider.Exporters)
 }

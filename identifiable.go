@@ -47,6 +47,15 @@ func (id Id) Name() string {
 	return v
 }
 
+func (id Id) WithName(name string) Id {
+	v, _ := id.split()
+	if name == "" {
+		return Id(v)
+	}
+
+	return Id(v + "/" + name)
+}
+
 func (id Id) MarshalText() (text []byte, err error) {
 	return []byte(id), nil
 }

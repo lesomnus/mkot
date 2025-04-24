@@ -14,9 +14,21 @@ import (
 type Config struct {
 	Enabled bool
 
+	ExporterRegistry ExporterRegistry `yaml:",omit"`
+
 	Processors map[Id]ProcessorConfig
 	Exporters  map[Id]ExporterConfig
-	Providers  map[string]ProviderConfig
+	Providers  map[Id]*ProviderConfig
+}
+
+func NewConfig() *Config {
+	return &Config{
+		ExporterRegistry: DefaultExporterRegistry,
+
+		Processors: map[Id]ProcessorConfig{},
+		Exporters:  map[Id]ExporterConfig{},
+		Providers:  map[Id]*ProviderConfig{},
+	}
 }
 
 type ProcessorConfig interface {
@@ -24,9 +36,10 @@ type ProcessorConfig interface {
 }
 
 type ExporterConfig interface {
-	tracer(ctx context.Context) (trace.SpanExporter, error)
-	meter(ctx context.Context) (metric.Exporter, error)
-	logger(ctx context.Context) (log.Exporter, error)
+	Tracer(ctx context.Context) (trace.SpanExporter, func(ctx context.Context) error, error)
+	Meter(ctx context.Context) (metric.Exporter, func(ctx context.Context) error, error)
+	Reader(ctx context.Context) (metric.Reader, func(ctx context.Context) error, error)
+	Logger(ctx context.Context) (log.Exporter, func(ctx context.Context) error, error)
 }
 
 type ProviderConfig struct {
@@ -39,7 +52,7 @@ type config struct {
 
 	Processors map[Id]yaml.Node
 	Exporters  map[Id]yaml.Node
-	Providers  map[string]ProviderConfig
+	Providers  map[Id]*ProviderConfig
 }
 
 func (c *Config) unmarshalProcessor(k Id, node *yaml.Node) (ProcessorConfig, error) {
@@ -71,24 +84,17 @@ func (c *Config) unmarshalProcessor(k Id, node *yaml.Node) (ProcessorConfig, err
 }
 
 func (c *Config) unmarshalExporter(k Id, node *yaml.Node) (ExporterConfig, error) {
-	switch k.Type() {
-	case "debug":
-		v := &DebugExporterConfig{}
-		if err := node.Decode(v); err != nil {
-			return nil, err
-		}
-		return v, nil
+	r := c.ExporterRegistry
+	if r == nil {
+		r = DefaultExporterRegistry
+	}
 
-	case "otlp":
-		v := &OtlpExporterConfig{}
-		if err := node.Decode(v); err != nil {
-			return nil, err
-		}
-		return v, nil
-
-	default:
+	d, ok := r.Get(k.Type())
+	if !ok {
 		return nil, errors.New("unknown type")
 	}
+
+	return d.DecodeYamlNode(node)
 }
 
 func (c *Config) UnmarshalYAML(value *yaml.Node) error {
@@ -104,7 +110,7 @@ func (c *Config) UnmarshalYAML(value *yaml.Node) error {
 
 	c.Processors = map[Id]ProcessorConfig{}
 	c.Exporters = map[Id]ExporterConfig{}
-	c.Providers = map[string]ProviderConfig{}
+	c.Providers = map[Id]*ProviderConfig{}
 
 	processor_errs := []error{}
 	for k, node := range c_.Processors {

@@ -13,8 +13,6 @@ require (
 	go.opentelemetry.io/otel/trace v1.35.0
 )
 
-replace github.com/lesomnus/mkot => ../../
-
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect

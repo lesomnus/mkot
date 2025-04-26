@@ -12,8 +12,6 @@ require (
 	go.opentelemetry.io/otel/sdk/metric v1.35.0
 )
 
-replace github.com/lesomnus/mkot => ../../
-
 require (
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect

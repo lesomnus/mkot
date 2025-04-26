@@ -35,6 +35,14 @@ type ProcessorConfig interface {
 	handle(ctx *resolveContext) error
 }
 
+// ExporterConfig holds configs to create an exporter
+// and provides a method to create the exporter.
+// First return value can be nil if the config does not
+// support corresponding exporter.
+// Second return value is a function that starts the
+// exporter and can be nil if the exporter does not
+// need to be started or already started.
+// Reader will be used when only if Meter is not supported.
 type ExporterConfig interface {
 	Tracer(ctx context.Context) (trace.SpanExporter, func(ctx context.Context) error, error)
 	Meter(ctx context.Context) (metric.Exporter, func(ctx context.Context) error, error)

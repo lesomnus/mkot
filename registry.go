@@ -20,8 +20,17 @@ func (r ExporterRegistry) Set(name string, v ExporterConfigDecoder) {
 }
 
 func MergeExporterRegistry(a ExporterRegistry, b ExporterRegistry) ExporterRegistry {
-	v := maps.Clone(a)
-	maps.Copy(v, b)
+	v := ExporterRegistry{}
+	if a == nil && b == nil {
+		return v
+	}
+	if a != nil {
+		maps.Copy(v, a)
+	}
+	if b != nil {
+		maps.Copy(v, b)
+	}
+
 	return v
 }
 
@@ -30,6 +39,10 @@ type ExporterConfigDecoder interface {
 }
 
 type ExporterConfigDecodable[T ExporterConfig] func() T
+
+func ExporterConfigDecodeFunc[T ExporterConfig](f func() T) ExporterConfigDecodable[T] {
+	return ExporterConfigDecodable[T](f)
+}
 
 func (f ExporterConfigDecodable[T]) DecodeYamlNode(node *yaml.Node) (ExporterConfig, error) {
 	c := f()

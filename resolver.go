@@ -14,6 +14,8 @@ import (
 	otrace "go.opentelemetry.io/otel/trace"
 )
 
+// Resolver constructs providers from the config it is based on.
+// The providers are assumed to be unstarted before [Resolver.Start] is called.
 type Resolver interface {
 	Tracer(ctx context.Context, name string, opts ...trace.TracerProviderOption) (otrace.TracerProvider, error)
 	Meter(ctx context.Context, name string, opts ...metric.Option) (ometric.MeterProvider, error)
@@ -51,6 +53,14 @@ type exporter[T any] struct {
 	start func(ctx context.Context) error
 }
 
+func (e exporter[T]) Start(ctx context.Context) error {
+	if e.start == nil {
+		return nil
+	}
+
+	return e.start(ctx)
+}
+
 type resolver struct {
 	config *Config
 
@@ -62,33 +72,45 @@ type resolver struct {
 
 func (r *resolver) Start(ctx context.Context) error {
 	var err error
-	check := func(id Id, err_ error) {
-		err = fmt.Errorf("%q: %w", id, err_)
+	check := func(
+		id Id,
+		f interface {
+			Start(ctx context.Context) error
+		},
+	) {
+		if f == nil {
+			return
+		}
+
+		err = f.Start(ctx)
+		if err != nil {
+			err = fmt.Errorf("%q: %w", id, err)
+		}
 	}
 
 	for id, v := range r.span_exporters {
 		if err != nil {
 			break
 		}
-		check(id, v.start(ctx))
+		check(id, v)
 	}
 	for id, v := range r.metric_exporters {
 		if err != nil {
 			break
 		}
-		check(id, v.start(ctx))
+		check(id, v)
 	}
 	for id, v := range r.metric_readers {
 		if err != nil {
 			break
 		}
-		check(id, v.start(ctx))
+		check(id, v)
 	}
 	for id, v := range r.log_exporters {
 		if err != nil {
 			break
 		}
-		check(id, v.start(ctx))
+		check(id, v)
 	}
 	if err == nil {
 		return nil
@@ -104,24 +126,34 @@ func (r *resolver) Start(ctx context.Context) error {
 
 func (r *resolver) Shutdown(ctx context.Context) error {
 	errs := []error{}
-	check := func(id Id, err_ error) {
-		if err_ != nil {
-			err := fmt.Errorf("%q: %w", id, err_)
+	check := func(
+		id Id,
+		f interface {
+			Shutdown(ctx context.Context) error
+		},
+	) {
+		if f == nil {
+			return
+		}
+
+		err := f.Shutdown(ctx)
+		if err != nil {
+			err = fmt.Errorf("%q: %w", id, err)
 			errs = append(errs, err)
 		}
 	}
 
 	for id, v := range r.span_exporters {
-		check(id, v.start(ctx))
+		check(id, v.value)
 	}
 	for id, v := range r.metric_exporters {
-		check(id, v.start(ctx))
+		check(id, v.value)
 	}
 	for id, v := range r.metric_readers {
-		check(id, v.start(ctx))
+		check(id, v.value)
 	}
 	for id, v := range r.log_exporters {
-		check(id, v.start(ctx))
+		check(id, v.value)
 	}
 
 	return errors.Join(errs...)
@@ -178,9 +210,10 @@ func newResolveContext(ctx context.Context) *resolveContext {
 }
 
 func (r *resolver) Tracer(ctx context.Context, name string, opts ...trace.TracerProviderOption) (otrace.TracerProvider, error) {
-	c, ok := r.config.Providers[Id("tracer").WithName(name)]
+	id := Id("tracer").WithName(name)
+	c, ok := r.config.Providers[id]
 	if !ok {
-		return nil, fmt.Errorf("provider %q: not found", name)
+		return nil, fmt.Errorf("provider %q: not found", id)
 	}
 
 	ctx_ := newResolveContext(ctx)
@@ -239,9 +272,10 @@ func (r *resolver) getSpanExporter(ctx context.Context, id Id) (exporter[trace.S
 }
 
 func (r *resolver) Meter(ctx context.Context, name string, opts ...metric.Option) (ometric.MeterProvider, error) {
-	c, ok := r.config.Providers[Id("meter").WithName(name)]
+	id := Id("meter").WithName(name)
+	c, ok := r.config.Providers[id]
 	if !ok {
-		return nil, fmt.Errorf("provider %q: not found", name)
+		return nil, fmt.Errorf("provider %q: not found", id)
 	}
 
 	ctx_ := newResolveContext(ctx)
@@ -269,7 +303,7 @@ func (r *resolver) Meter(ctx context.Context, name string, opts ...metric.Option
 		processor_config.handle(ctx_)
 	}
 	for _, r := range ctx_.metric.readers {
-		opts = append(opts, metric.WithReader(r))
+		ctx_.metric.opts = append(ctx_.metric.opts, metric.WithReader(r))
 	}
 
 	ctx_.metric.opts = append(ctx_.metric.opts, metric.WithResource(ctx_.resource))
@@ -324,9 +358,10 @@ func (r *resolver) getMetricReader(ctx context.Context, id Id) (exporter[metric.
 }
 
 func (r *resolver) Logger(ctx context.Context, name string, opts ...log.LoggerProviderOption) (olog.LoggerProvider, error) {
-	c, ok := r.config.Providers[Id("logger").WithName(name)]
+	id := Id("logger").WithName(name)
+	c, ok := r.config.Providers[id]
 	if !ok {
-		return nil, fmt.Errorf("provider %q: not found", name)
+		return nil, fmt.Errorf("provider %q: not found", id)
 	}
 
 	ctx_ := newResolveContext(ctx)

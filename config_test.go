@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/lesomnus/mkot"
+	"github.com/lesomnus/mkot/exporters/debug"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/attribute"
 	"gopkg.in/yaml.v3"
@@ -58,17 +59,10 @@ processors:
 exporters:
   debug:
 
-  otlp:
-    endpoint: example.com:80
-    compression: gzip
-    headers:
-      foo: bar
-      baz: qux
-
 providers:
   tracer:
     processors: [batcher/foo, resource]
-    exporters: [debug, otlp]
+    exporters: [debug]
 `
 
 	c := mkot.Config{}
@@ -156,26 +150,12 @@ providers:
 	require.Equal(2*time.Minute, *periodic_reader.Timeout)
 
 	debug_exporter_v := c.Exporters["debug"]
-	require.IsType(&mkot.DebugExporterConfig{}, debug_exporter_v)
+	require.IsType(&debug.Config{}, debug_exporter_v)
 
-	debug_exporter := debug_exporter_v.(*mkot.DebugExporterConfig)
+	debug_exporter := debug_exporter_v.(*debug.Config)
 	require.NotNil(debug_exporter)
-
-	otlp_exporter_v := c.Exporters["otlp"]
-	require.IsType(&mkot.OtlpExporterConfig{}, otlp_exporter_v)
-
-	otlp_exporter := otlp_exporter_v.(*mkot.OtlpExporterConfig)
-	require.NotNil(otlp_exporter)
-	require.Equal("example.com:80", otlp_exporter.Endpoint)
-	require.NotNil(otlp_exporter.Compression)
-	require.Equal("gzip", *otlp_exporter.Compression)
-	require.NotNil(otlp_exporter.Headers)
-	require.Equal(map[string]string{
-		"foo": "bar",
-		"baz": "qux",
-	}, otlp_exporter.Headers)
 
 	default_provider := c.Providers["tracer"]
 	require.Equal([]mkot.Id{"batcher/foo", "resource"}, default_provider.Processors)
-	require.Equal([]mkot.Id{"debug", "otlp"}, default_provider.Exporters)
+	require.Equal([]mkot.Id{"debug"}, default_provider.Exporters)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 
 	olog "go.opentelemetry.io/otel/log"
 	ometric "go.opentelemetry.io/otel/metric"
@@ -213,7 +214,7 @@ func (r *resolver) Tracer(ctx context.Context, name string, opts ...trace.Tracer
 	id := Id("tracer").WithName(name)
 	c, ok := r.config.Providers[id]
 	if !ok {
-		return nil, fmt.Errorf("provider %q: not found", id)
+		return nil, fmt.Errorf("provider %q: %w", id, os.ErrNotExist)
 	}
 
 	ctx_ := newResolveContext(ctx)
@@ -275,7 +276,7 @@ func (r *resolver) Meter(ctx context.Context, name string, opts ...metric.Option
 	id := Id("meter").WithName(name)
 	c, ok := r.config.Providers[id]
 	if !ok {
-		return nil, fmt.Errorf("provider %q: not found", id)
+		return nil, fmt.Errorf("provider %q: %w", id, os.ErrNotExist)
 	}
 
 	ctx_ := newResolveContext(ctx)
@@ -361,7 +362,7 @@ func (r *resolver) Logger(ctx context.Context, name string, opts ...log.LoggerPr
 	id := Id("logger").WithName(name)
 	c, ok := r.config.Providers[id]
 	if !ok {
-		return nil, fmt.Errorf("provider %q: not found", id)
+		return nil, fmt.Errorf("provider %q: %w", id, os.ErrNotExist)
 	}
 
 	ctx_ := newResolveContext(ctx)

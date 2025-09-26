@@ -126,6 +126,10 @@ func (h *LogExporter) Export(ctx context.Context, records []sdklog.Record) error
 		}
 
 		for _, attr := range rest {
+			if attr.Key == "trace_id" || attr.Key == "span_id" {
+				continue
+			}
+
 			b.WriteString(" ")
 			b.WriteString(attr.Key)
 			b.WriteString("=")

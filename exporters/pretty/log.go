@@ -134,13 +134,15 @@ func (h *LogExporter) Export(ctx context.Context, records []sdklog.Record) error
 			b.WriteString(attr.Key)
 			b.WriteString("=")
 
+			c := attr_colors[attr.Value.Kind()]
 			switch attr.Value.Kind() {
 			case log.KindBool,
-				log.KindFloat64,
 				log.KindInt64,
 				log.KindString:
-				c := attr_colors[attr.Value.Kind()]
 				c.Fprint(&b, attr.Value.String())
+			case log.KindFloat64:
+				v := attr.Value.AsFloat64()
+				c.Fprintf(&b, "%.[1]*g", 3, v)
 			}
 		}
 

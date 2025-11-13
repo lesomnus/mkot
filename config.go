@@ -53,6 +53,7 @@ type ExporterConfig interface {
 type ProviderConfig struct {
 	Processors []Id
 	Exporters  []Id
+	Pipelines  []string
 }
 
 type config struct {

@@ -2,6 +2,7 @@ package otlphttp
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/lesomnus/mkot"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
@@ -13,6 +14,8 @@ import (
 )
 
 type Config struct {
+	HttpClient *http.Client
+
 	Endpoint string
 
 	// The URL to send traces to. If omitted the Endpoint + "/v1/traces" will be used.
@@ -35,6 +38,9 @@ func (c *Config) Tracer(ctx context.Context) (trace.SpanExporter, func(ctx conte
 
 func (c *Config) traceOpts() []otlptracehttp.Option {
 	opts := []otlptracehttp.Option{}
+	if c.HttpClient != nil {
+		opts = append(opts, otlptracehttp.WithHTTPClient(c.HttpClient))
+	}
 
 	ep := c.TracesEndpoint
 	if ep == "" {
@@ -64,6 +70,9 @@ func (c *Config) Reader(ctx context.Context) (metric.Reader, func(ctx context.Co
 
 func (c *Config) metricOpts() []otlpmetrichttp.Option {
 	opts := []otlpmetrichttp.Option{}
+	if c.HttpClient != nil {
+		opts = append(opts, otlpmetrichttp.WithHTTPClient(c.HttpClient))
+	}
 
 	ep := c.TracesEndpoint
 	if ep == "" {
@@ -89,6 +98,9 @@ func (c *Config) Logger(ctx context.Context) (log.Exporter, func(ctx context.Con
 
 func (c *Config) logOpts() []otlploghttp.Option {
 	opts := []otlploghttp.Option{}
+	if c.HttpClient != nil {
+		opts = append(opts, otlploghttp.WithHTTPClient(c.HttpClient))
+	}
 
 	ep := c.TracesEndpoint
 	if ep == "" {

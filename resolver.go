@@ -393,8 +393,22 @@ func (r *resolver) Logger(ctx context.Context, name string, opts ...log.LoggerPr
 	}
 
 	ctx_.log.opts = append(ctx_.log.opts, log.WithResource(ctx_.resource))
-	v := log.NewLoggerProvider(ctx_.log.opts...)
-	return v, nil
+	p := log.NewLoggerProvider(ctx_.log.opts...)
+
+	ps := []olog.LoggerProvider{p}
+	for _, name := range c.Pipelines {
+		p, err := r.Logger(ctx, name)
+		if err != nil {
+			return nil, fmt.Errorf("logger/%s: %w", name, err)
+		}
+
+		ps = append(ps, p)
+	}
+	if len(ps) == 0 {
+		return p, nil
+	}
+
+	return multiLoggerProvider{providers: ps}, nil
 }
 
 func (r *resolver) getLogExporter(ctx context.Context, id Id) (exporter[log.Exporter], error) {

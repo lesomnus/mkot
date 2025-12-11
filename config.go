@@ -14,7 +14,7 @@ import (
 type Config struct {
 	Enabled bool
 
-	ExporterRegistry ExporterRegistry `yaml:",omit"`
+	ExporterRegistry ExporterRegistry `yaml:"-"`
 
 	Processors map[Id]ProcessorConfig
 	Exporters  map[Id]ExporterConfig

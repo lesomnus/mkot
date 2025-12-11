@@ -23,7 +23,7 @@ func (h *LogExporter) Export(ctx context.Context, records []sdklog.Record) error
 
 		r.WalkAttributes(func(kv log.KeyValue) bool {
 			switch kv.Key {
-			case "internal.otx.title":
+			case "app.widget.name":
 				title = kv.Value.AsString()
 			case "internal.otx.ingress":
 				kind = "ingress"

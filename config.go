@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"go.opentelemetry.io/otel/sdk/log"
-	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/trace"
 	"gopkg.in/yaml.v3"
 )
@@ -14,7 +13,8 @@ import (
 type Config struct {
 	Enabled bool
 
-	ExporterRegistry ExporterRegistry `yaml:"-"`
+	ProcessorRegistry ProcessorRegistry `yaml:"-"`
+	ExporterRegistry  ExporterRegistry  `yaml:"-"`
 
 	Processors map[Id]ProcessorConfig
 	Exporters  map[Id]ExporterConfig
@@ -23,7 +23,8 @@ type Config struct {
 
 func NewConfig() *Config {
 	return &Config{
-		ExporterRegistry: DefaultExporterRegistry,
+		ProcessorRegistry: DefaultProcessorRegistry,
+		ExporterRegistry:  DefaultExporterRegistry,
 
 		Processors: map[Id]ProcessorConfig{},
 		Exporters:  map[Id]ExporterConfig{},
@@ -31,24 +32,25 @@ func NewConfig() *Config {
 	}
 }
 
-type ProcessorConfig interface {
-	handle(ctx *resolveContext) error
+type TracerOpts interface {
+	TracerOpts(ctx context.Context) ([]trace.TracerProviderOption, error)
 }
 
-// ExporterConfig holds configs to create an exporter
-// and provides a method to create the exporter.
-// First return value can be nil if the config does not
-// support corresponding exporter.
-// Second return value is a function that starts the
-// exporter and can be nil if the exporter does not
-// need to be started or already started.
-// Reader will be used when only if Meter is not supported.
-type ExporterConfig interface {
-	Tracer(ctx context.Context) (trace.SpanExporter, func(ctx context.Context) error, error)
-	Meter(ctx context.Context) (metric.Exporter, func(ctx context.Context) error, error)
-	Reader(ctx context.Context) (metric.Reader, func(ctx context.Context) error, error)
-	Logger(ctx context.Context) (log.Exporter, func(ctx context.Context) error, error)
+type LoggerOpts interface {
+	LoggerOpts(ctx context.Context) ([]log.LoggerProviderOption, error)
 }
+
+type ProcessorConfig interface{}
+
+type SpanExporter interface {
+	SpanExporter(ctx context.Context) (trace.SpanExporter, error)
+}
+
+type LogExporter interface {
+	LogExporter(ctx context.Context) (log.Exporter, error)
+}
+
+type ExporterConfig interface{}
 
 type ProviderConfig struct {
 	Processors []Id
@@ -64,48 +66,6 @@ type config struct {
 	Providers  map[Id]*ProviderConfig
 }
 
-func (c *Config) unmarshalProcessor(k Id, node *yaml.Node) (ProcessorConfig, error) {
-	switch k.Type() {
-	case "batcher":
-		v := &BatcherConfig{}
-		if err := node.Decode(v); err != nil {
-			return nil, err
-		}
-		return v, nil
-
-	case "resource":
-		v := &ResourceConfig{}
-		if err := node.Decode(v); err != nil {
-			return nil, err
-		}
-		return v, nil
-
-	case "periodic_reader":
-		v := &PeriodicReaderConfig{}
-		if err := node.Decode(v); err != nil {
-			return nil, err
-		}
-		return v, nil
-
-	default:
-		return nil, errors.New("unknown type")
-	}
-}
-
-func (c *Config) unmarshalExporter(k Id, node *yaml.Node) (ExporterConfig, error) {
-	r := c.ExporterRegistry
-	if r == nil {
-		r = DefaultExporterRegistry
-	}
-
-	d, ok := r.Get(k.Type())
-	if !ok {
-		return nil, errors.New("unknown type")
-	}
-
-	return d.DecodeYamlNode(node)
-}
-
 func (c *Config) UnmarshalYAML(value *yaml.Node) error {
 	c_ := config{}
 	if err := value.Decode(&c_); err != nil {
@@ -117,26 +77,52 @@ func (c *Config) UnmarshalYAML(value *yaml.Node) error {
 		return nil
 	}
 
+	reg_processor := c.ProcessorRegistry
+	if reg_processor == nil {
+		reg_processor = DefaultProcessorRegistry
+	}
+
+	reg_exporter := c.ExporterRegistry
+	if reg_exporter == nil {
+		reg_exporter = DefaultExporterRegistry
+	}
+
 	c.Processors = map[Id]ProcessorConfig{}
 	c.Exporters = map[Id]ExporterConfig{}
 	c.Providers = map[Id]*ProviderConfig{}
 
 	processor_errs := []error{}
 	for k, node := range c_.Processors {
-		if v, err := c.unmarshalProcessor(k, &node); err != nil {
-			processor_errs = append(processor_errs, fmt.Errorf("%q: %w", k.String(), err))
-		} else {
-			c.Processors[k] = v
+		d, ok := reg_processor.Get(k.Type())
+		if !ok {
+			processor_errs = append(processor_errs, fmt.Errorf("%q: unknown type", k.String()))
+			continue
 		}
+
+		c_, err := d.Decode(&node)
+		if err != nil {
+			processor_errs = append(processor_errs, fmt.Errorf("%q: %w", k.String(), err))
+			continue
+		}
+
+		c.Processors[k] = c_
 	}
 
 	exporter_errs := []error{}
 	for k, node := range c_.Exporters {
-		if v, err := c.unmarshalExporter(k, &node); err != nil {
-			exporter_errs = append(exporter_errs, fmt.Errorf("%q: %w", k.String(), err))
-		} else {
-			c.Exporters[k] = v
+		d, ok := reg_exporter.Get(k.Type())
+		if !ok {
+			exporter_errs = append(exporter_errs, fmt.Errorf("%q: unknown type", k.String()))
+			continue
 		}
+
+		c_, err := d.Decode(&node)
+		if err != nil {
+			exporter_errs = append(exporter_errs, fmt.Errorf("%q: %w", k.String(), err))
+			continue
+		}
+
+		c.Exporters[k] = c_
 	}
 
 	c.Providers = c_.Providers
@@ -144,6 +130,10 @@ func (c *Config) UnmarshalYAML(value *yaml.Node) error {
 		wrapErr("processor", errors.Join(processor_errs...)),
 		wrapErr("exporter", errors.Join(exporter_errs...)),
 	)
+}
+
+type ConfigDecoder[T any] interface {
+	Decode(node *yaml.Node) (T, error)
 }
 
 func wrapErr(msg string, err error) error {

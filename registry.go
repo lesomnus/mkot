@@ -2,25 +2,26 @@ package mkot
 
 import (
 	"maps"
-
-	"gopkg.in/yaml.v3"
 )
 
-type ExporterRegistry map[string]ExporterConfigDecoder
+var (
+	DefaultProcessorRegistry = ProcessorRegistry{}
+	DefaultExporterRegistry  = ExporterRegistry{}
+)
 
-var DefaultExporterRegistry = ExporterRegistry{}
+type Registry[T any] map[string]ConfigDecoder[T]
 
-func (r ExporterRegistry) Get(name string) (ExporterConfigDecoder, bool) {
+func (r Registry[T]) Get(name string) (ConfigDecoder[T], bool) {
 	v, ok := r[name]
 	return v, ok
 }
 
-func (r ExporterRegistry) Set(name string, v ExporterConfigDecoder) {
+func (r Registry[T]) Set(name string, v ConfigDecoder[T]) {
 	r[name] = v
 }
 
-func MergeExporterRegistry(a ExporterRegistry, b ExporterRegistry) ExporterRegistry {
-	v := ExporterRegistry{}
+func MergeRegistry[T any](a Registry[T], b Registry[T]) Registry[T] {
+	v := Registry[T]{}
 	if a == nil && b == nil {
 		return v
 	}
@@ -34,20 +35,5 @@ func MergeExporterRegistry(a ExporterRegistry, b ExporterRegistry) ExporterRegis
 	return v
 }
 
-type ExporterConfigDecoder interface {
-	DecodeYamlNode(node *yaml.Node) (ExporterConfig, error)
-}
-
-type ExporterConfigDecodable[T ExporterConfig] func() T
-
-func ExporterConfigDecodeFunc[T ExporterConfig](f func() T) ExporterConfigDecodable[T] {
-	return ExporterConfigDecodable[T](f)
-}
-
-func (f ExporterConfigDecodable[T]) DecodeYamlNode(node *yaml.Node) (ExporterConfig, error) {
-	c := f()
-	if err := node.Decode(c); err != nil {
-		return nil, err
-	}
-	return c, nil
-}
+type ProcessorRegistry = Registry[ProcessorConfig]
+type ExporterRegistry = Registry[ExporterConfig]

@@ -12,8 +12,8 @@ import (
 )
 
 type ResourceProcessor struct {
-	Attributes []Attribute
-	Detectors  []string
+	Attributes []Attribute `yaml:",omitempty"`
+	Detectors  []string    `yaml:",omitempty"`
 }
 
 func (c *ResourceProcessor) TracerOpts(ctx context.Context) ([]trace.TracerProviderOption, error) {

@@ -61,12 +61,12 @@ type resolver struct {
 }
 
 type provider struct {
-	value      interface{}
-	components map[Id]interface{}
+	value      any
+	components map[Id]any
 }
 
 func (r *resolver) Start(ctx context.Context) (err error) {
-	components := []interface{}{}
+	components := []any{}
 	defer func() {
 		if err == nil {
 			return
@@ -139,7 +139,7 @@ func (r *resolver) Tracer(ctx context.Context, name string, opts ...trace.Tracer
 		return nil, fmt.Errorf("provider %q: %w", id, os.ErrNotExist)
 	}
 
-	components := map[Id]interface{}{}
+	components := map[Id]any{}
 	for _, id := range c.Processors {
 		c, ok := r.config.Processors[id]
 		if !ok {
@@ -200,7 +200,7 @@ func (r *resolver) Logger(ctx context.Context, name string, opts ...log.LoggerPr
 		return nil, fmt.Errorf("provider %q: %w", id, os.ErrNotExist)
 	}
 
-	components := map[Id]interface{}{}
+	components := map[Id]any{}
 	for _, id := range c.Processors {
 		c, ok := r.config.Processors[id]
 		if !ok {

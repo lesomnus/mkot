@@ -12,11 +12,8 @@ type Attribute struct {
 	Value attribute.Value
 }
 
-func (a *Attribute) toKv() attribute.KeyValue {
-	return attribute.KeyValue{
-		Key:   attribute.Key(a.Key),
-		Value: a.Value,
-	}
+func (a Attribute) MarshalYAML() (any, error) {
+	return map[string]any{"key": a.Key, "value": a.Value.AsString()}, nil
 }
 
 func (a *Attribute) UnmarshalYAML(node *yaml.Node) error {

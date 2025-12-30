@@ -16,9 +16,9 @@ type Config struct {
 	ProcessorRegistry ProcessorRegistry `yaml:"-"`
 	ExporterRegistry  ExporterRegistry  `yaml:"-"`
 
-	Processors map[Id]ProcessorConfig
-	Exporters  map[Id]ExporterConfig
-	Providers  map[Id]*ProviderConfig
+	Processors map[Id]ProcessorConfig `yaml:",omitempty"`
+	Exporters  map[Id]ExporterConfig  `yaml:",omitempty"`
+	Providers  map[Id]*ProviderConfig `yaml:",omitempty"`
 }
 
 func NewConfig() *Config {
@@ -53,9 +53,8 @@ type LogExporter interface {
 type ExporterConfig interface{}
 
 type ProviderConfig struct {
-	Processors []Id
-	Exporters  []Id
-	Pipelines  []string
+	Processors []Id `yaml:",omitempty"`
+	Exporters  []Id `yaml:",omitempty"`
 }
 
 type config struct {
@@ -64,6 +63,11 @@ type config struct {
 	Processors map[Id]yaml.Node
 	Exporters  map[Id]yaml.Node
 	Providers  map[Id]*ProviderConfig
+}
+
+func (c Config) MarshalYAML() (any, error) {
+	type T Config
+	return T(c), nil
 }
 
 func (c *Config) UnmarshalYAML(value *yaml.Node) error {

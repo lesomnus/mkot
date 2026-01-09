@@ -186,7 +186,7 @@ func (e *LogExporter) Export(ctx context.Context, records []sdklog.Record) error
 			sym = c_error.Sprint(" • ")
 		}
 
-		b := bytes.NewBuffer(make([]byte, 128))
+		b := bytes.NewBuffer(make([]byte, 0, 128))
 		writeHeader(b, title, r.Timestamp(), sym, r.TraceID(), r.SpanID())
 		switch kind {
 		case logKindHttpIngress, logKindGrpcIngress:
@@ -277,7 +277,9 @@ func (*LogExporter) writeHttpIngressLine(w *bytes.Buffer, attr *kindHttpAttr) {
 
 	w.WriteString(peer_addr)
 	w.WriteByte(' ')
+	w.WriteString(c_faint.Sprint("|"))
 	w.WriteString(c_http_method.Sprint(method))
+	w.WriteString(c_faint.Sprint("|"))
 	w.WriteByte(' ')
 	w.WriteString(attr.Url)
 }

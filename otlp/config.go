@@ -69,6 +69,12 @@ func (c *Config) metricOpts() []otlpmetricgrpc.Option {
 	if len(c.Headers) > 0 {
 		opts = append(opts, otlpmetricgrpc.WithHeaders(c.Headers))
 	}
+	if c.Tls.Insecure {
+		opts = append(opts, otlpmetricgrpc.WithInsecure())
+	} else {
+		// TODO:
+		// opts = append(opts, otlpmetricgrpc.WithTLSCredentials())
+	}
 
 	return opts
 }
@@ -81,6 +87,12 @@ func (c *Config) LogExporter(ctx context.Context) (log.Exporter, error) {
 func (c *Config) logOpts() []otlploggrpc.Option {
 	opts := []otlploggrpc.Option{
 		otlploggrpc.WithEndpoint(c.Endpoint),
+	}
+	if c.Tls.Insecure {
+		opts = append(opts, otlploggrpc.WithInsecure())
+	} else {
+		// TODO:
+		// opts = append(opts, otlploggrpc.WithTLSCredentials())
 	}
 
 	return opts

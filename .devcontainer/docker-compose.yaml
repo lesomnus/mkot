@@ -7,25 +7,32 @@ services:
     command: sleep infinity
 
     privileged: true
-    cap_add:
-      - SYS_PTRACE
-    security_opt:
-      - seccomp:unconfined
 
     volumes:
-      - type: volume
-        source: mod.cache.go.dev
-        target: /go/pkg/mod
-      - type: volume
-        source: bin.cache.go.dev
-        target: /home/hypnos/.cache/go-build
-      - type: bind
-        source: ${HOME}/workspace
-        target: /workspaces
       - type: bind
         source: ..
-        target: /workspace/mkot
+        target: /workspace
+      - type: bind
+        source: ${HOME}/workspaces
+        target: /workspaces
+
+      - type: volume
+        source: go.cache.mod
+        target: /home/hypnos/go/pkg/mod
+      - type: volume
+        source: go.cache.bin
+        target: /home/hypnos/.cache/go-build
+
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 8G
+          pids: 2048
+        reservations:
+          cpus: "2"
+          memory: 4G
 
 volumes:
-  mod.cache.go.dev:
-  bin.cache.go.dev:
+  go.cache.mod:
+  go.cache.bin:

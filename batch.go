@@ -3,6 +3,7 @@ package mkot
 import (
 	"time"
 
+	"github.com/lesomnus/mkot/internal/z"
 	"go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/trace"
 )
@@ -21,22 +22,22 @@ type Batch struct {
 
 func (c *Batch) SpanOpts() []trace.BatchSpanProcessorOption {
 	opts := []trace.BatchSpanProcessorOption{}
-	opts = take(opts, c.MaxQueueSize, trace.WithMaxQueueSize)
-	opts = take(opts, c.MaxExportBatchSize, trace.WithMaxExportBatchSize)
-	opts = take(opts, c.BatchTimeout, trace.WithBatchTimeout)
-	opts = take(opts, c.ExportTimeout, trace.WithExportTimeout)
-	opts = enable(opts, c.Blocking, trace.WithBlocking)
+	opts = z.Take(opts, c.MaxQueueSize, trace.WithMaxQueueSize)
+	opts = z.Take(opts, c.MaxExportBatchSize, trace.WithMaxExportBatchSize)
+	opts = z.Take(opts, c.BatchTimeout, trace.WithBatchTimeout)
+	opts = z.Take(opts, c.ExportTimeout, trace.WithExportTimeout)
+	opts = z.Enable(opts, c.Blocking, trace.WithBlocking)
 
 	return opts
 }
 
 func (c *Batch) LogOpts() []log.BatchProcessorOption {
 	opts := []log.BatchProcessorOption{}
-	opts = take(opts, c.MaxQueueSize, log.WithMaxQueueSize)
-	opts = take(opts, c.MaxExportBatchSize, log.WithExportMaxBatchSize)
-	opts = take(opts, c.ExportBufferSize, log.WithExportBufferSize)
-	opts = take(opts, c.ExportTimeout, log.WithExportTimeout)
-	opts = take(opts, c.ExportInterval, log.WithExportInterval)
+	opts = z.Take(opts, c.MaxQueueSize, log.WithMaxQueueSize)
+	opts = z.Take(opts, c.MaxExportBatchSize, log.WithExportMaxBatchSize)
+	opts = z.Take(opts, c.ExportBufferSize, log.WithExportBufferSize)
+	opts = z.Take(opts, c.ExportTimeout, log.WithExportTimeout)
+	opts = z.Take(opts, c.ExportInterval, log.WithExportInterval)
 
 	return opts
 }

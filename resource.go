@@ -8,15 +8,15 @@ import (
 	"go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/resource"
 	"go.opentelemetry.io/otel/sdk/trace"
-	"gopkg.in/yaml.v3"
 )
 
-type ResourceProcessor struct {
-	Attributes []Attribute `yaml:",omitempty"`
-	Detectors  []string    `yaml:",omitempty"`
+type Resource struct {
+	UnimplementedProcessorConfig
+	Attributes []Attr   `yaml:",omitempty"`
+	Detectors  []string `yaml:",omitempty"`
 }
 
-func (c *ResourceProcessor) TracerOpts(ctx context.Context) ([]trace.TracerProviderOption, error) {
+func (c *Resource) TracerOpts(ctx context.Context) ([]trace.TracerProviderOption, error) {
 	v, err := resource.New(ctx, c.opts()...)
 	if err != nil {
 		return nil, fmt.Errorf("create resource: %w", err)
@@ -24,7 +24,7 @@ func (c *ResourceProcessor) TracerOpts(ctx context.Context) ([]trace.TracerProvi
 	return []trace.TracerProviderOption{trace.WithResource(v)}, nil
 }
 
-func (c *ResourceProcessor) LoggerOpts(ctx context.Context) ([]log.LoggerProviderOption, error) {
+func (c *Resource) LoggerOpts(ctx context.Context) ([]log.LoggerProviderOption, error) {
 	v, err := resource.New(ctx, c.opts()...)
 	if err != nil {
 		return nil, fmt.Errorf("create resource: %w", err)
@@ -32,7 +32,7 @@ func (c *ResourceProcessor) LoggerOpts(ctx context.Context) ([]log.LoggerProvide
 	return []log.LoggerProviderOption{log.WithResource(v)}, nil
 }
 
-func (c *ResourceProcessor) opts() []resource.Option {
+func (c *Resource) opts() []resource.Option {
 	opts := []resource.Option{}
 
 	kvs := []attribute.KeyValue{}
@@ -91,16 +91,8 @@ func (c *ResourceProcessor) opts() []resource.Option {
 	return opts
 }
 
-type ResourceProcessorDecoder struct{}
-
-func (d ResourceProcessorDecoder) Decode(node *yaml.Node) (ProcessorConfig, error) {
-	var c ResourceProcessor
-	if err := node.Decode(&c); err != nil {
-		return nil, err
-	}
-	return &c, nil
-}
-
 func init() {
-	DefaultProcessorRegistry.Set("resource", ResourceProcessorDecoder{})
+	DefaultProcessorRegistry.Set("resource", func() ProcessorConfig {
+		return &Resource{}
+	})
 }

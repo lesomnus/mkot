@@ -9,14 +9,23 @@ var (
 	DefaultExporterRegistry  = ExporterRegistry{}
 )
 
-type Registry[T any] map[string]ConfigDecoder[T]
+type Registry[T any] map[string]func() T
 
-func (r Registry[T]) Get(name string) (ConfigDecoder[T], bool) {
+func (r Registry[T]) Get(name string) (func() T, bool) {
 	v, ok := r[name]
 	return v, ok
 }
 
-func (r Registry[T]) Set(name string, v ConfigDecoder[T]) {
+func (r Registry[T]) New(name string) (T, bool) {
+	v, ok := r.Get(name)
+	if !ok {
+		var zero T
+		return zero, false
+	}
+	return v(), true
+}
+
+func (r Registry[T]) Set(name string, v func() T) {
 	r[name] = v
 }
 

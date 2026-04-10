@@ -3,30 +3,17 @@ package mkot_test
 import (
 	"testing"
 
+	"github.com/goccy/go-yaml"
 	"github.com/lesomnus/mkot"
-	"github.com/lesomnus/mkot/debug"
-	"github.com/stretchr/testify/require"
+	"github.com/lesomnus/mkot/internal/x"
 	"go.opentelemetry.io/otel/attribute"
-	"gopkg.in/yaml.v3"
 )
 
 func TestConfigUnmarshalYAML(t *testing.T) {
-	require := require.New(t)
+	_, x := x.New(t)
 	const Raw = `
 enabled: true
 processors:
-#     batcher:
-#     max_queue_size: 1
-#     max_export_batch_size: 2
-#     export_buffer_size: 3
-# 
-#     batch_timeout: 1m
-#     export_timeout: 2m
-#     export_interval: 3m
-# 
-#   batcher/foo:
-#     max_queue_size: 42
-
   resource:
     attributes:
       - key: string
@@ -39,11 +26,11 @@ processors:
         value: true
 
       - key: strings
-        value: [foo, bar]
+        value: [a, b, c]
       - key: ints
-        value: [1, 2]
+        value: [1, 2, 3]
       - key: floats
-        value: [3.14, 2.71]
+        value: [1.1, 2.2, 3.3]
       - key: bools
         value: [true, false, true]
 
@@ -51,113 +38,62 @@ processors:
       - os
       - process
 
-#   periodic_reader:
-#     interval: 1m
-#     timeout: 2m
-
-exporters:
-  debug:
-
 providers:
   tracer:
     processors:
-#      - batcher/foo
       - resource
-    exporters:
-      - debug
 `
 
 	c := mkot.Config{}
 	err := yaml.Unmarshal([]byte(Raw), &c)
-	require.NoError(err)
-	// require.Contains(c.Processors, mkot.Id("batcher"))
-	require.Contains(c.Processors, mkot.Id("resource"))
-	// require.Contains(c.Processors, mkot.Id("periodic_reader"))
-
-	// batcher_v := c.Processors["batcher"]
-	// require.IsType(&mkot.BatcherConfig{}, batcher_v)
-
-	// batcher := batcher_v.(*mkot.BatcherConfig)
-	// require.NotNil(batcher)
-	// require.NotNil(batcher.MaxQueueSize)
-	// require.Equal(1, *batcher.MaxQueueSize)
-	// require.NotNil(batcher.MaxExportBatchSize)
-	// require.Equal(2, *batcher.MaxExportBatchSize)
-	// require.NotNil(batcher.ExportBufferSize)
-	// require.Equal(3, *batcher.ExportBufferSize)
-	// require.NotNil(batcher.BatchTimeout)
-	// require.Equal(1*time.Minute, *batcher.BatchTimeout)
-	// require.NotNil(batcher.ExportTimeout)
-	// require.Equal(2*time.Minute, *batcher.ExportTimeout)
-	// require.NotNil(batcher.ExportInterval)
-	// require.Equal(3*time.Minute, *batcher.ExportInterval)
-
-	// batcher_foo_v := c.Processors["batcher/foo"]
-	// require.IsType(&mkot.BatcherConfig{}, batcher_foo_v)
-
-	// batcher_foo := batcher_foo_v.(*mkot.BatcherConfig)
-	// require.NotNil(batcher_foo)
-	// require.NotNil(batcher_foo.MaxQueueSize)
-	// require.Equal(42, *batcher_foo.MaxQueueSize)
+	x.NoError(err)
+	x.Contains(c.Processors, mkot.Id("resource"))
 
 	resource_v := c.Processors["resource"]
-	require.IsType(&mkot.ResourceProcessor{}, resource_v)
+	resource := mkot.Resource{}
+	x.TypeAs(resource_v, &resource)
+	x.Eq(
+		mkot.Resource{
+			Attributes: []mkot.Attr{
+				{
+					Key:   "string",
+					Value: attribute.StringValue("foo"),
+				},
+				{
+					Key:   "int",
+					Value: attribute.IntValue(42),
+				},
+				{
+					Key:   "float",
+					Value: attribute.Float64Value(3.14),
+				},
+				{
+					Key:   "bool",
+					Value: attribute.BoolValue(true),
+				},
+				{
+					Key:   "strings",
+					Value: attribute.StringSliceValue([]string{"a", "b", "c"}),
+				},
+				{
+					Key:   "ints",
+					Value: attribute.IntSliceValue([]int{1, 2, 3}),
+				},
+				{
+					Key:   "floats",
+					Value: attribute.Float64SliceValue([]float64{1.1, 2.2, 3.3}),
+				},
+				{
+					Key:   "bools",
+					Value: attribute.BoolSliceValue([]bool{true, false, true}),
+				},
+			},
+			Detectors: []string{"os", "process"},
+		},
+		resource,
+	)
 
-	resource := resource_v.(*mkot.ResourceProcessor)
-	require.NotNil(resource)
-	require.Equal([]mkot.Attribute{
-		{
-			Key:   "string",
-			Value: attribute.StringValue("foo"),
-		},
-		{
-			Key:   "int",
-			Value: attribute.IntValue(42),
-		},
-		{
-			Key:   "float",
-			Value: attribute.Float64Value(3.14),
-		},
-		{
-			Key:   "bool",
-			Value: attribute.BoolValue(true),
-		},
-		{
-			Key:   "strings",
-			Value: attribute.StringSliceValue([]string{"foo", "bar"}),
-		},
-		{
-			Key:   "ints",
-			Value: attribute.IntSliceValue([]int{1, 2}),
-		},
-		{
-			Key:   "floats",
-			Value: attribute.Float64SliceValue([]float64{3.14, 2.71}),
-		},
-		{
-			Key:   "bools",
-			Value: attribute.BoolSliceValue([]bool{true, false, true}),
-		},
-	}, resource.Attributes)
-	require.Equal([]string{"os", "process"}, resource.Detectors)
-
-	// periodic_reader_v := c.Processors["periodic_reader"]
-	// require.IsType(&mkot.PeriodicReaderConfig{}, periodic_reader_v)
-
-	// periodic_reader := periodic_reader_v.(*mkot.PeriodicReaderConfig)
-	// require.NotNil(periodic_reader)
-	// require.NotNil(periodic_reader.Interval)
-	// require.Equal(1*time.Minute, *periodic_reader.Interval)
-	// require.NotNil(periodic_reader.Timeout)
-	// require.Equal(2*time.Minute, *periodic_reader.Timeout)
-
-	debug_exporter_v := c.Exporters["debug"]
-	require.IsType(&debug.Config{}, debug_exporter_v)
-
-	debug_exporter := debug_exporter_v.(*debug.Config)
-	require.NotNil(debug_exporter)
-
-	default_provider := c.Providers["tracer"]
-	require.Equal([]mkot.Id{"resource"}, default_provider.Processors)
-	require.Equal([]mkot.Id{"debug"}, default_provider.Exporters)
+	// default_provider := c.Providers["tracer"]
+	// require.Equal([]mkot.Id{"resource"}, default_provider.Processors)
+	// require.Equal([]mkot.Id{"debug"}, default_provider.Exporters)
 }

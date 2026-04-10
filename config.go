@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/goccy/go-yaml"
+	"github.com/goccy/go-yaml/ast"
+	"github.com/lesomnus/mkot/internal/z"
 	"go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/trace"
-	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
@@ -32,26 +34,6 @@ func NewConfig() *Config {
 	}
 }
 
-type TracerOpts interface {
-	TracerOpts(ctx context.Context) ([]trace.TracerProviderOption, error)
-}
-
-type LoggerOpts interface {
-	LoggerOpts(ctx context.Context) ([]log.LoggerProviderOption, error)
-}
-
-type ProcessorConfig interface{}
-
-type SpanExporter interface {
-	SpanExporter(ctx context.Context) (trace.SpanExporter, error)
-}
-
-type LogExporter interface {
-	LogExporter(ctx context.Context) (log.Exporter, error)
-}
-
-type ExporterConfig interface{}
-
 type ProviderConfig struct {
 	Processors []Id `yaml:",omitempty"`
 	Exporters  []Id `yaml:",omitempty"`
@@ -60,25 +42,15 @@ type ProviderConfig struct {
 type config struct {
 	Enabled bool
 
-	Processors map[Id]yaml.Node
-	Exporters  map[Id]yaml.Node
+	Processors map[Id]ast.Node
+	Exporters  map[Id]ast.Node
 	Providers  map[Id]*ProviderConfig
 }
 
-func (c Config) MarshalYAML() (any, error) {
-	type T Config
-	return T(c), nil
-}
-
-func (c *Config) UnmarshalYAML(value *yaml.Node) error {
+func (c *Config) UnmarshalYAML(unmarshal func(any) error) error {
 	c_ := config{}
-	if err := value.Decode(&c_); err != nil {
+	if err := unmarshal(&c_); err != nil {
 		return err
-	}
-
-	c.Enabled = c_.Enabled
-	if !c.Enabled {
-		return nil
 	}
 
 	reg_processor := c.ProcessorRegistry
@@ -95,55 +67,83 @@ func (c *Config) UnmarshalYAML(value *yaml.Node) error {
 	c.Exporters = map[Id]ExporterConfig{}
 	c.Providers = map[Id]*ProviderConfig{}
 
-	processor_errs := []error{}
+	errs_processor := []error{}
 	for k, node := range c_.Processors {
-		d, ok := reg_processor.Get(k.Type())
+		d, ok := reg_processor.New(k.Type())
 		if !ok {
-			processor_errs = append(processor_errs, fmt.Errorf("%q: unknown type", k.String()))
+			errs_processor = append(errs_processor, fmt.Errorf("%q: unknown type", k.String()))
 			continue
 		}
-
-		c_, err := d.Decode(&node)
-		if err != nil {
-			processor_errs = append(processor_errs, fmt.Errorf("%q: %w", k.String(), err))
-			continue
+		if err := yaml.Unmarshal([]byte(node.String()), d); err != nil {
+			errs_processor = append(errs_processor, fmt.Errorf("%q: unmarshal: %w", k.String(), err))
 		}
 
-		c.Processors[k] = c_
+		c.Processors[k] = d
 	}
 
-	exporter_errs := []error{}
+	errs_exporter := []error{}
 	for k, node := range c_.Exporters {
-		d, ok := reg_exporter.Get(k.Type())
+		d, ok := reg_exporter.New(k.Type())
 		if !ok {
-			exporter_errs = append(exporter_errs, fmt.Errorf("%q: unknown type", k.String()))
+			errs_exporter = append(errs_exporter, fmt.Errorf("%q: unknown type", k.String()))
 			continue
 		}
-
-		c_, err := d.Decode(&node)
-		if err != nil {
-			exporter_errs = append(exporter_errs, fmt.Errorf("%q: %w", k.String(), err))
-			continue
+		if err := yaml.Unmarshal([]byte(node.String()), d); err != nil {
+			errs_exporter = append(errs_exporter, fmt.Errorf("%q: unmarshal: %w", k.String(), err))
 		}
 
-		c.Exporters[k] = c_
+		c.Exporters[k] = d
 	}
 
 	c.Providers = c_.Providers
 	return errors.Join(
-		wrapErr("processor", errors.Join(processor_errs...)),
-		wrapErr("exporter", errors.Join(exporter_errs...)),
+		z.Err(errors.Join(errs_processor...), ".processor"),
+		z.Err(errors.Join(errs_exporter...), ".exporter"),
 	)
 }
 
-type ConfigDecoder[T any] interface {
-	Decode(node *yaml.Node) (T, error)
+type TracerProviderConfig interface {
+	TracerOpts(ctx context.Context) ([]trace.TracerProviderOption, error)
 }
 
-func wrapErr(msg string, err error) error {
-	if err == nil {
-		return nil
-	}
+type LoggerProviderConfig interface {
+	LoggerOpts(ctx context.Context) ([]log.LoggerProviderOption, error)
+}
 
-	return fmt.Errorf("%s: %w", msg, err)
+type ProcessorConfig interface {
+	TracerProviderConfig
+	LoggerProviderConfig
+}
+
+type UnimplementedProcessorConfig struct{}
+
+func (UnimplementedProcessorConfig) TracerOpts(ctx context.Context) ([]trace.TracerProviderOption, error) {
+	return nil, nil
+}
+
+func (UnimplementedProcessorConfig) LoggerOpts(ctx context.Context) ([]log.LoggerProviderOption, error) {
+	return nil, nil
+}
+
+type SpanExporterConfig interface {
+	SpanExporter(ctx context.Context) (trace.SpanExporter, []trace.TracerProviderOption, error)
+}
+
+type LogExporterConfig interface {
+	LogExporter(ctx context.Context) (log.Exporter, []log.LoggerProviderOption, error)
+}
+
+type ExporterConfig interface {
+	SpanExporterConfig
+	LogExporterConfig
+}
+
+type UnimplementedExporterConfig struct{}
+
+func (UnimplementedExporterConfig) SpanExporter(ctx context.Context) (trace.SpanExporter, []trace.TracerProviderOption, error) {
+	return nil, nil, nil
+}
+
+func (UnimplementedExporterConfig) LogExporter(ctx context.Context) (log.Exporter, []log.LoggerProviderOption, error) {
+	return nil, nil, nil
 }

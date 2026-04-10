@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 
 	olog "go.opentelemetry.io/otel/log"
 	"go.opentelemetry.io/otel/sdk/log"
@@ -136,46 +135,60 @@ func (r *resolver) Tracer(ctx context.Context, name string, opts ...trace.Tracer
 
 	c, ok := r.config.Providers[id]
 	if !ok {
-		return nil, fmt.Errorf("provider %q: %w", id, os.ErrNotExist)
+		return nil, fmt.Errorf("undefined provider %q", id)
 	}
 
 	components := map[Id]any{}
 	for _, id := range c.Processors {
-		c, ok := r.config.Processors[id]
-		if !ok {
-			return nil, fmt.Errorf("processor %q: not found", id.String())
-		}
+		if err := func() error {
+			c, ok := r.config.Processors[id]
+			if !ok {
+				return fmt.Errorf("not found")
+			}
 
-		c_, ok := c.(TracerOpts)
-		if !ok {
-			return nil, fmt.Errorf("processor %q: not for the tracer", id.String())
-		}
+			c_, ok := c.(TracerProviderConfig)
+			if !ok {
+				return fmt.Errorf("not for the tracer")
+			}
 
-		opts_, err := c_.TracerOpts(ctx)
-		if err != nil {
+			opts_, err := c_.TracerOpts(ctx)
+			if err != nil {
+				return err
+			}
+			if opts_ == nil {
+				return fmt.Errorf("not for the tracer")
+			}
+
+			opts = append(opts, opts_...)
+			return nil
+		}(); err != nil {
 			return nil, fmt.Errorf("processor %q: %w", id.String(), err)
 		}
-
-		opts = append(opts, opts_...)
 	}
 	for _, id := range c.Exporters {
-		c, ok := r.config.Exporters[id]
-		if !ok {
-			return nil, fmt.Errorf("exporter %q: not found", id.String())
-		}
+		if err := func() error {
+			c, ok := r.config.Exporters[id]
+			if !ok {
+				return fmt.Errorf("not found")
+			}
 
-		c_, ok := c.(SpanExporter)
-		if !ok {
-			return nil, fmt.Errorf("exporter %q: not a span exporter", id.String())
-		}
+			c_, ok := c.(SpanExporterConfig)
+			if !ok {
+				return fmt.Errorf("not a span exporter")
+			}
 
-		v, err := c_.SpanExporter(ctx)
-		if err != nil {
+			v, opts_, err := c_.SpanExporter(ctx)
+			if err != nil {
+				return err
+			}
+
+			components[id] = v
+			opts = append(opts, opts_...)
+			return nil
+		}(); err != nil {
 			return nil, fmt.Errorf("exporter %q: %w", id.String(), err)
 		}
 
-		components[id] = v
-		opts = append(opts, trace.WithSpanProcessor(trace.NewSimpleSpanProcessor(v)))
 	}
 
 	v := trace.NewTracerProvider(opts...)
@@ -197,46 +210,60 @@ func (r *resolver) Logger(ctx context.Context, name string, opts ...log.LoggerPr
 
 	c, ok := r.config.Providers[id]
 	if !ok {
-		return nil, fmt.Errorf("provider %q: %w", id, os.ErrNotExist)
+		return nil, fmt.Errorf("undefined provider %q", id)
 	}
 
 	components := map[Id]any{}
 	for _, id := range c.Processors {
-		c, ok := r.config.Processors[id]
-		if !ok {
-			return nil, fmt.Errorf("processor %q: not found", id.String())
-		}
+		if err := func() error {
+			c, ok := r.config.Processors[id]
+			if !ok {
+				return fmt.Errorf("not found")
+			}
 
-		c_, ok := c.(LoggerOpts)
-		if !ok {
-			return nil, fmt.Errorf("processor %q: not for the tracer", id.String())
-		}
+			c_, ok := c.(LoggerProviderConfig)
+			if !ok {
+				return fmt.Errorf("not for the logger")
+			}
 
-		opts_, err := c_.LoggerOpts(ctx)
-		if err != nil {
+			opts_, err := c_.LoggerOpts(ctx)
+			if err != nil {
+				return err
+			}
+			if opts_ == nil {
+				return fmt.Errorf("not for the logger")
+			}
+
+			opts = append(opts, opts_...)
+			return nil
+		}(); err != nil {
 			return nil, fmt.Errorf("processor %q: %w", id.String(), err)
 		}
-
-		opts = append(opts, opts_...)
 	}
 	for _, id := range c.Exporters {
-		c, ok := r.config.Exporters[id]
-		if !ok {
-			return nil, fmt.Errorf("exporter %q: not found", id.String())
-		}
+		if err := func() error {
+			c, ok := r.config.Exporters[id]
+			if !ok {
+				return fmt.Errorf("not found")
+			}
 
-		c_, ok := c.(LogExporter)
-		if !ok {
-			return nil, fmt.Errorf("exporter %q: not a log exporter", id.String())
-		}
+			c_, ok := c.(LogExporterConfig)
+			if !ok {
+				return fmt.Errorf("not a log exporter")
 
-		v, err := c_.LogExporter(ctx)
-		if err != nil {
+			}
+
+			v, opts_, err := c_.LogExporter(ctx)
+			if err != nil {
+				return err
+			}
+
+			components[id] = v
+			opts = append(opts, opts_...)
+			return nil
+		}(); err != nil {
 			return nil, fmt.Errorf("exporter %q: %w", id.String(), err)
 		}
-
-		components[id] = v
-		opts = append(opts, log.WithProcessor(log.NewSimpleProcessor(v)))
 	}
 
 	v := log.NewLoggerProvider(opts...)

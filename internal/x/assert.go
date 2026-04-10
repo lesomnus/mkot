@@ -81,8 +81,9 @@ func (a X) Contains(v, target any) {
 		}
 
 	case reflect.Map:
-		for i := 0; i < reflect.ValueOf(v).Len(); i++ {
-			if reflect.DeepEqual(reflect.ValueOf(v).Index(i).Interface(), target) {
+		iter := reflect.ValueOf(v).MapRange()
+		for iter.Next() {
+			if reflect.DeepEqual(iter.Key().Interface(), target) {
 				return
 			}
 		}

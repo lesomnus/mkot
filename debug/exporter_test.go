@@ -17,7 +17,7 @@ func TestExporter(t *testing.T) {
 	x.NoError(err)
 
 	c := mkot.NewConfig()
-	c.Exporters["debug"] = Exporter{
+	c.Exporters["debug"] = ExporterConfig{
 		OutputPaths: []string{f.Name()},
 	}
 	c.Providers["logger/debug"] = &mkot.ProviderConfig{

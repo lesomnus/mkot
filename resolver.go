@@ -135,7 +135,7 @@ func (r *resolver) Tracer(ctx context.Context, name string, opts ...trace.Tracer
 
 	c, ok := r.config.Providers[id]
 	if !ok {
-		return nil, fmt.Errorf("undefined provider %q", id)
+		return nil, ErrNotExist
 	}
 
 	components := map[Id]any{}
@@ -210,7 +210,7 @@ func (r *resolver) Logger(ctx context.Context, name string, opts ...log.LoggerPr
 
 	c, ok := r.config.Providers[id]
 	if !ok {
-		return nil, fmt.Errorf("undefined provider %q", id)
+		return nil, ErrNotExist
 	}
 
 	components := map[Id]any{}

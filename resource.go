@@ -11,7 +11,8 @@ import (
 )
 
 type Resource struct {
-	UnimplementedProcessorConfig
+	UnimplementedProcessorConfig `yaml:"-"`
+
 	Attributes []Attr   `yaml:",omitempty"`
 	Detectors  []string `yaml:",omitempty"`
 }

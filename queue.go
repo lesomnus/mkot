@@ -11,7 +11,7 @@ import (
 
 // QueueConfig defines configuration for queueing and batching incoming requests.
 type QueueConfig struct {
-	Enabled bool
+	Enabled *bool
 
 	// NumConsumers is the maximum number of concurrent consumers from the queue.
 	// This applies across all different optional configurations from above (e.g. wait_for_result, block_on_overflow, storage, etc.).
@@ -28,7 +28,6 @@ type QueueConfig struct {
 	// // Sizer determines the type of size measurement used by this component.
 	// // It accepts "requests", "items", or "bytes".
 	// Sizer request.SizerType `yaml:"sizer,omitempty"`
-
 	// QueueSize represents the maximum data size allowed for concurrent storage and processing.
 	QueueSize int64 `yaml:"queue_size,omitempty"`
 
@@ -41,10 +40,15 @@ type QueueConfig struct {
 	Batch BatchConfig `yaml:"batch,omitempty"`
 }
 
+func (c QueueConfig) IsEnabled() bool {
+	return c.Enabled == nil || *c.Enabled
+}
+
 func (c QueueConfig) BuildSpanProcessor(v trace.SpanExporter) trace.SpanProcessor {
-	if !c.Enabled {
+	if !c.IsEnabled() {
 		return trace.NewSimpleSpanProcessor(v)
 	}
+
 	return trace.NewBatchSpanProcessor(v,
 		trace.WithMaxQueueSize(int(c.QueueSize)),
 		trace.WithBatchTimeout(c.Batch.FlushTimeout),
@@ -53,7 +57,7 @@ func (c QueueConfig) BuildSpanProcessor(v trace.SpanExporter) trace.SpanProcesso
 }
 
 func (c QueueConfig) BuildLogProcessor(v log.Exporter) log.Processor {
-	if !c.Enabled {
+	if !c.IsEnabled() {
 		return log.NewSimpleProcessor(v)
 	}
 

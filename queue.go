@@ -11,7 +11,7 @@ import (
 
 // QueueConfig defines configuration for queueing and batching incoming requests.
 type QueueConfig struct {
-	Enabled *bool
+	Enabled *bool `yaml:",omitempty"`
 
 	// NumConsumers is the maximum number of concurrent consumers from the queue.
 	// This applies across all different optional configurations from above (e.g. wait_for_result, block_on_overflow, storage, etc.).

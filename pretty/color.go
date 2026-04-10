@@ -22,16 +22,26 @@ var (
 
 	c_http_method = color.New(color.Bold)
 
-	pastel_colors = []*color.Color{
-		color.RGB(255, 179, 186), // rgb(255, 179, 186) - Pastel Pink
+	light_colors = []*color.Color{
+		color.RGB(255, 80, 80),   // rgb(255, 80, 80)   - Vivid Red
+		color.RGB(255, 140, 80),  // rgb(255, 140, 80)  - Bright Orange
+		color.RGB(255, 190, 80),  // rgb(255, 190, 80)  - Bright Amber
 		color.RGB(255, 223, 186), // rgb(255, 223, 186) - Pastel Peach
 		color.RGB(255, 255, 186), // rgb(255, 255, 186) - Pastel Yellow
+		color.RGB(210, 255, 80),  // rgb(210, 255, 80)  - Lime Yellow
+		color.RGB(130, 255, 80),  // rgb(130, 255, 80)  - Chartreuse
 		color.RGB(186, 255, 201), // rgb(186, 255, 201) - Pastel Green
+		color.RGB(80, 255, 120),  // rgb(80, 255, 120)  - Spring Green
+		color.RGB(80, 255, 200),  // rgb(80, 255, 200)  - Aqua Green
 		color.RGB(186, 255, 255), // rgb(186, 255, 255) - Pastel Cyan
+		color.RGB(80, 240, 255),  // rgb(80, 240, 255)  - Bright Cyan
+		color.RGB(80, 180, 255),  // rgb(80, 180, 255)  - Sky Blue
 		color.RGB(186, 201, 255), // rgb(186, 201, 255) - Pastel Blue
+		color.RGB(120, 80, 255),  // rgb(120, 80, 255)  - Electric Indigo
 		color.RGB(201, 186, 255), // rgb(201, 186, 255) - Pastel Lavender
 		color.RGB(255, 186, 255), // rgb(255, 186, 255) - Pastel Magenta
-		color.RGB(255, 186, 214), // rgb(255, 186, 214) - Pastel Rose
+		color.RGB(255, 80, 200),  // rgb(255, 80, 200)  - Hot Pink
+		color.RGB(255, 179, 186), // rgb(255, 179, 186) - Pastel Pink
 	}
 	dimmed_colors = []*color.Color{
 		color.RGB(139, 0, 0),    // rgb(139, 0, 0)    - Dark Red

@@ -13,7 +13,7 @@ import (
 )
 
 type Config struct {
-	Enabled bool
+	Enabled *bool `yaml:",omitempty"`
 
 	ProcessorRegistry ProcessorRegistry `yaml:"-"`
 	ExporterRegistry  ExporterRegistry  `yaml:"-"`
@@ -34,13 +34,17 @@ func NewConfig() *Config {
 	}
 }
 
+func (c Config) IsEnabled() bool {
+	return c.Enabled == nil || *c.Enabled
+}
+
 type ProviderConfig struct {
 	Processors []Id `yaml:",omitempty"`
 	Exporters  []Id `yaml:",omitempty"`
 }
 
 type config struct {
-	Enabled bool
+	Enabled *bool
 
 	Processors map[Id]ast.Node
 	Exporters  map[Id]ast.Node
@@ -52,6 +56,8 @@ func (c *Config) UnmarshalYAML(unmarshal func(any) error) error {
 	if err := unmarshal(&c_); err != nil {
 		return err
 	}
+
+	c.Enabled = c_.Enabled
 
 	reg_processor := c.ProcessorRegistry
 	if reg_processor == nil {

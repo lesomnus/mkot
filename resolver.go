@@ -23,7 +23,7 @@ type Resolver interface {
 }
 
 func Make(ctx context.Context, c *Config) Resolver {
-	if c == nil {
+	if c == nil || !c.IsEnabled() {
 		c = NewConfig()
 	}
 	if c.Processors == nil {

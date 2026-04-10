@@ -16,7 +16,7 @@ func writeHeader(w *bytes.Buffer, title string, t time.Time, sym string, trace_i
 	}
 	if title != "" {
 		sum := sum(title)
-		c_title = pastel_colors[sum%len(pastel_colors)]
+		c_title = light_colors[sum%len(light_colors)]
 	}
 
 	tid := trace_id.String()[:6]

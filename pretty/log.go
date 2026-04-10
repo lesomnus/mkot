@@ -74,10 +74,6 @@ type kindGrpcAttr struct {
 	ResBytes int64 // Compressed size
 }
 
-func (c *Config) LogExporter(ctx context.Context) (sdklog.Exporter, error) {
-	return &LogExporter{Out: c.Output}, nil
-}
-
 func (e *LogExporter) Export(ctx context.Context, records []sdklog.Record) error {
 	for _, r := range records {
 		title := ""

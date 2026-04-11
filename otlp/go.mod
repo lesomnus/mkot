@@ -3,7 +3,7 @@ module github.com/lesomnus/mkot/otlp
 go 1.26
 
 require (
-	github.com/lesomnus/mkot v0.0.0-20260410205208-9d2ed1d7cf6a
+	github.com/lesomnus/mkot v0.0.0-20260411162738-94ecabfea7a7
 	go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc v0.19.0
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc v1.43.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.43.0

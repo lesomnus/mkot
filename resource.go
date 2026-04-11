@@ -6,6 +6,7 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/log"
+	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	"go.opentelemetry.io/otel/sdk/trace"
 )
@@ -23,6 +24,14 @@ func (c *Resource) TracerOpts(ctx context.Context) ([]trace.TracerProviderOption
 		return nil, fmt.Errorf("create resource: %w", err)
 	}
 	return []trace.TracerProviderOption{trace.WithResource(v)}, nil
+}
+
+func (c *Resource) MeterOpts(ctx context.Context) ([]metric.Option, error) {
+	v, err := resource.New(ctx, c.opts()...)
+	if err != nil {
+		return nil, fmt.Errorf("create resource: %w", err)
+	}
+	return []metric.Option{metric.WithResource(v)}, nil
 }
 
 func (c *Resource) LoggerOpts(ctx context.Context) ([]log.LoggerProviderOption, error) {
@@ -82,7 +91,7 @@ func (c *Resource) opts() []resource.Option {
 			opts = append(opts, resource.WithProcessRuntimeDescription())
 		case "process.runtime.name":
 			opts = append(opts, resource.WithProcessRuntimeName())
-		case "process.runtime.vesion":
+		case "process.runtime.version":
 			opts = append(opts, resource.WithProcessRuntimeVersion())
 		case "telemetry.sdk":
 			opts = append(opts, resource.WithTelemetrySDK())

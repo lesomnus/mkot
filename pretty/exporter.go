@@ -6,12 +6,13 @@ import (
 
 	"github.com/lesomnus/mkot"
 	"go.opentelemetry.io/otel/sdk/log"
-	"go.opentelemetry.io/otel/sdk/trace"
 )
 
 var _ mkot.ExporterConfig = (*ExporterConfig)(nil)
 
 type ExporterConfig struct {
+	mkot.UnimplementedExporterConfig
+
 	// OutputPaths is a list of file paths to write logging output to.
 	// This option can only be used when use_internal_logger is false.
 	// Special strings "stdout" and "stderr" are interpreted as os.Stdout and os.Stderr respectively.
@@ -21,10 +22,6 @@ type ExporterConfig struct {
 
 	// Outputs is a list of functions that opens [io.WriteCloser]s to write logging output to.
 	Outputs []mkot.WriterOpenFunc `yaml:"-"`
-}
-
-func (e ExporterConfig) SpanExporter(ctx context.Context) (trace.SpanExporter, []trace.TracerProviderOption, error) {
-	panic("unimplemented")
 }
 
 func (e ExporterConfig) LogExporter(ctx context.Context) (log.Exporter, []log.LoggerProviderOption, error) {

@@ -9,6 +9,7 @@ import (
 	"github.com/goccy/go-yaml/ast"
 	"github.com/lesomnus/mkot/internal/z"
 	"go.opentelemetry.io/otel/sdk/log"
+	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/trace"
 )
 
@@ -112,18 +113,27 @@ type TracerProviderConfig interface {
 	TracerOpts(ctx context.Context) ([]trace.TracerProviderOption, error)
 }
 
+type MeterProviderConfig interface {
+	MeterOpts(ctx context.Context) ([]metric.Option, error)
+}
+
 type LoggerProviderConfig interface {
 	LoggerOpts(ctx context.Context) ([]log.LoggerProviderOption, error)
 }
 
 type ProcessorConfig interface {
 	TracerProviderConfig
+	MeterProviderConfig
 	LoggerProviderConfig
 }
 
 type UnimplementedProcessorConfig struct{}
 
 func (UnimplementedProcessorConfig) TracerOpts(ctx context.Context) ([]trace.TracerProviderOption, error) {
+	return nil, nil
+}
+
+func (UnimplementedProcessorConfig) MeterOpts(ctx context.Context) ([]metric.Option, error) {
 	return nil, nil
 }
 
@@ -135,21 +145,30 @@ type SpanExporterConfig interface {
 	SpanExporter(ctx context.Context) (trace.SpanExporter, []trace.TracerProviderOption, error)
 }
 
+type MetricExporterConfig interface {
+	MetricExporter(ctx context.Context) (metric.Exporter, []metric.Option, error)
+}
+
 type LogExporterConfig interface {
 	LogExporter(ctx context.Context) (log.Exporter, []log.LoggerProviderOption, error)
 }
 
 type ExporterConfig interface {
 	SpanExporterConfig
+	MetricExporterConfig
 	LogExporterConfig
 }
 
 type UnimplementedExporterConfig struct{}
 
 func (UnimplementedExporterConfig) SpanExporter(ctx context.Context) (trace.SpanExporter, []trace.TracerProviderOption, error) {
-	return nil, nil, nil
+	return nil, nil, errors.New("unimplemented")
+}
+
+func (UnimplementedExporterConfig) MetricExporter(ctx context.Context) (metric.Exporter, []metric.Option, error) {
+	return nil, nil, errors.New("unimplemented")
 }
 
 func (UnimplementedExporterConfig) LogExporter(ctx context.Context) (log.Exporter, []log.LoggerProviderOption, error) {
-	return nil, nil, nil
+	return nil, nil, errors.New("unimplemented")
 }

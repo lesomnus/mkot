@@ -6,7 +6,9 @@ import (
 	"fmt"
 
 	olog "go.opentelemetry.io/otel/log"
+	ometric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/sdk/log"
+	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/trace"
 	otrace "go.opentelemetry.io/otel/trace"
 )
@@ -15,7 +17,7 @@ import (
 // The providers are assumed to be unstarted before [Resolver.Start] is called.
 type Resolver interface {
 	Tracer(ctx context.Context, name string, opts ...trace.TracerProviderOption) (otrace.TracerProvider, error)
-	// Meter(ctx context.Context, name string, opts ...metric.Option) (ometric.MeterProvider, error)
+	Meter(ctx context.Context, name string, opts ...metric.Option) (ometric.MeterProvider, error)
 	Logger(ctx context.Context, name string, opts ...log.LoggerProviderOption) (olog.LoggerProvider, error)
 
 	Start(ctx context.Context) error
@@ -192,6 +194,81 @@ func (r *resolver) Tracer(ctx context.Context, name string, opts ...trace.Tracer
 	}
 
 	v := trace.NewTracerProvider(opts...)
+	r.providers[id] = &provider{
+		value:      v,
+		components: components,
+	}
+	return v, nil
+}
+
+func (r *resolver) Meter(ctx context.Context, name string, opts ...metric.Option) (ometric.MeterProvider, error) {
+	id := Id("meter").WithName(name)
+	if r.providers == nil {
+		r.providers = map[Id]*provider{}
+	}
+	if p, ok := r.providers[id]; ok {
+		return p.value.(ometric.MeterProvider), nil
+	}
+
+	c, ok := r.config.Providers[id]
+	if !ok {
+		return nil, ErrNotExist
+	}
+
+	components := map[Id]any{}
+	for _, id := range c.Processors {
+		if err := func() error {
+			c, ok := r.config.Processors[id]
+			if !ok {
+				return fmt.Errorf("not found")
+			}
+
+			c_, ok := c.(MeterProviderConfig)
+			if !ok {
+				return fmt.Errorf("not for the meter")
+			}
+
+			opts_, err := c_.MeterOpts(ctx)
+			if err != nil {
+				return err
+			}
+			if opts_ == nil {
+				return fmt.Errorf("not for the meter")
+			}
+
+			opts = append(opts, opts_...)
+			return nil
+		}(); err != nil {
+			return nil, fmt.Errorf("processor %q: %w", id.String(), err)
+		}
+	}
+	for _, id := range c.Exporters {
+		if err := func() error {
+			c, ok := r.config.Exporters[id]
+			if !ok {
+				return fmt.Errorf("not found")
+			}
+
+			c_, ok := c.(MetricExporterConfig)
+			if !ok {
+				return fmt.Errorf("not a metric exporter")
+			}
+
+			v, opts_, err := c_.MetricExporter(ctx)
+			if err != nil {
+				return err
+			}
+
+			components[id] = v
+			opts = append(opts, opts_...)
+			return nil
+		}(); err != nil {
+			return nil, fmt.Errorf("exporter %q: %w", id.String(), err)
+		}
+
+	}
+
+	v := metric.NewMeterProvider(opts...)
 	r.providers[id] = &provider{
 		value:      v,
 		components: components,

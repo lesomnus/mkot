@@ -81,8 +81,14 @@ func (c *Config) UnmarshalYAML(unmarshal func(any) error) error {
 			errs_processor = append(errs_processor, fmt.Errorf("%q: unknown type", k.String()))
 			continue
 		}
-		if err := yaml.Unmarshal([]byte(node.String()), d); err != nil {
-			errs_processor = append(errs_processor, fmt.Errorf("%q: unmarshal: %w", k.String(), err))
+		if node != nil {
+			raw, err := node.MarshalYAML()
+			if err != nil {
+				errs_processor = append(errs_processor, fmt.Errorf("%q: get raw: %w", k.String(), err))
+			}
+			if err := yaml.Unmarshal(raw, d); err != nil {
+				errs_processor = append(errs_processor, fmt.Errorf("%q: unmarshal: %w", k.String(), err))
+			}
 		}
 
 		c.Processors[k] = d
@@ -95,8 +101,14 @@ func (c *Config) UnmarshalYAML(unmarshal func(any) error) error {
 			errs_exporter = append(errs_exporter, fmt.Errorf("%q: unknown type", k.String()))
 			continue
 		}
-		if err := yaml.Unmarshal([]byte(node.String()), d); err != nil {
-			errs_exporter = append(errs_exporter, fmt.Errorf("%q: unmarshal: %w", k.String(), err))
+		if node != nil {
+			raw, err := node.MarshalYAML()
+			if err != nil {
+				errs_exporter = append(errs_exporter, fmt.Errorf("%q: get raw: %w", k.String(), err))
+			}
+			if err := yaml.Unmarshal(raw, d); err != nil {
+				errs_exporter = append(errs_exporter, fmt.Errorf("%q: unmarshal: %w", k.String(), err))
+			}
 		}
 
 		c.Exporters[k] = d

@@ -43,19 +43,6 @@ func Make(ctx context.Context, c *Config) Resolver {
 	}
 }
 
-type exporter[T any] struct {
-	value T
-	start func(ctx context.Context) error
-}
-
-func (e exporter[T]) Start(ctx context.Context) error {
-	if e.start == nil {
-		return nil
-	}
-
-	return e.start(ctx)
-}
-
 type resolver struct {
 	config    *Config
 	providers map[Id]*provider
@@ -249,19 +236,23 @@ func (r *resolver) Meter(ctx context.Context, name string, opts ...metric.Option
 				return fmt.Errorf("not found")
 			}
 
-			c_, ok := c.(MetricExporterConfig)
-			if !ok {
-				return fmt.Errorf("not a metric exporter")
-			}
-
-			v, opts_, err := c_.MetricExporter(ctx)
-			if err != nil {
+			if v, opts_, err := c.MetricExporter(ctx); err == nil {
+				components[id] = v
+				opts = append(opts, opts_...)
+				return nil
+			} else if !errors.Is(err, ErrUnimplemented) {
 				return err
 			}
 
-			components[id] = v
-			opts = append(opts, opts_...)
-			return nil
+			if v, opts_, err := c.MetricReader(ctx); err == nil {
+				components[id] = v
+				opts = append(opts, opts_...)
+				return nil
+			} else if !errors.Is(err, ErrUnimplemented) {
+				return err
+			}
+
+			return ErrUnimplemented
 		}(); err != nil {
 			return nil, fmt.Errorf("exporter %q: %w", id.String(), err)
 		}

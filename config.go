@@ -161,6 +161,10 @@ type MetricExporterConfig interface {
 	MetricExporter(ctx context.Context) (metric.Exporter, []metric.Option, error)
 }
 
+type MetricReaderConfig interface {
+	MetricReader(ctx context.Context) (metric.Reader, []metric.Option, error)
+}
+
 type LogExporterConfig interface {
 	LogExporter(ctx context.Context) (log.Exporter, []log.LoggerProviderOption, error)
 }
@@ -168,19 +172,24 @@ type LogExporterConfig interface {
 type ExporterConfig interface {
 	SpanExporterConfig
 	MetricExporterConfig
+	MetricReaderConfig
 	LogExporterConfig
 }
 
 type UnimplementedExporterConfig struct{}
 
 func (UnimplementedExporterConfig) SpanExporter(ctx context.Context) (trace.SpanExporter, []trace.TracerProviderOption, error) {
-	return nil, nil, errors.New("unimplemented")
+	return nil, nil, ErrUnimplemented
 }
 
 func (UnimplementedExporterConfig) MetricExporter(ctx context.Context) (metric.Exporter, []metric.Option, error) {
-	return nil, nil, errors.New("unimplemented")
+	return nil, nil, ErrUnimplemented
+}
+
+func (UnimplementedExporterConfig) MetricReader(ctx context.Context) (metric.Reader, []metric.Option, error) {
+	return nil, nil, ErrUnimplemented
 }
 
 func (UnimplementedExporterConfig) LogExporter(ctx context.Context) (log.Exporter, []log.LoggerProviderOption, error) {
-	return nil, nil, errors.New("unimplemented")
+	return nil, nil, ErrUnimplemented
 }

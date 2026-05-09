@@ -21,6 +21,8 @@ var _ mkot.ExporterConfig = (*ExporterConfig)(nil)
 
 // ExporterConfig defines common settings for a gRPC client configuration.
 type ExporterConfig struct {
+	mkot.UnimplementedExporterConfig
+
 	// Copied from https://github.com/open-telemetry/opentelemetry-collector/blob/41c3a7661559975374656a2fe886c6de0b726052/config/confighttp/client.go
 
 	// The target to which the exporter is going to send traces or metrics,

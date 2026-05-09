@@ -17,6 +17,8 @@ import (
 var _ mkot.ExporterConfig = (*ExporterConfig)(nil)
 
 type ExporterConfig struct {
+	mkot.UnimplementedExporterConfig
+
 	// OutputPaths is a list of file paths to write logging output to.
 	// This option can only be used when use_internal_logger is false.
 	// Special strings "stdout" and "stderr" are interpreted as os.Stdout and os.Stderr respectively.

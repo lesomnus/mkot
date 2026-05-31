@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fatih/color"
 	"go.opentelemetry.io/otel/log"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
@@ -83,6 +84,7 @@ func (e *LogExporter) Export(ctx context.Context, records []sdklog.Record) error
 
 		attr_http := kindHttpAttr{}
 		attr_grpc := kindGrpcAttr{}
+		status_msg := ""
 
 		r.WalkAttributes(func(kv log.KeyValue) bool {
 			switch kv.Key {
@@ -147,6 +149,9 @@ func (e *LogExporter) Export(ctx context.Context, records []sdklog.Record) error
 				kind |= logKindGrpc | logKindEnd
 				attr_grpc.ResBytes = kv.Value.AsInt64()
 
+			case "server.status_message":
+				kind |= logKindServer | logKindEnd
+				status_msg = kv.Value.AsString()
 			case "server.elapsed_ns":
 				kind |= logKindServer | logKindEnd
 				v := kv.Value.AsInt64()
@@ -164,22 +169,32 @@ func (e *LogExporter) Export(ctx context.Context, records []sdklog.Record) error
 			return true
 		})
 
-		var sym string
+		var (
+			sym   string
+			c_sym *color.Color
+		)
 		switch (r.Severity() - 1) / 4 {
 		case 0: // Trace1~4
-			sym = c_faint.Sprint(" • ")
+			c_sym = c_faint
+			sym = c_sym.Sprint(" • ")
 		case 1: // Debug1~4
-			sym = c_debug.Sprint(" ? ")
+			c_sym = c_debug
+			sym = c_sym.Sprint(" ? ")
 		case 2: // Info1~4
-			sym = c_info.Sprint(" ○ ")
+			c_sym = c_info
+			sym = c_sym.Sprint(" ○ ")
 		case 3: // Warn1~4
-			sym = c_warn.Sprint(" ! ")
+			c_sym = c_warn
+			sym = c_sym.Sprint(" ! ")
 		case 4: // Error1~4
-			sym = c_error.Sprint(" x ")
+			c_sym = c_error
+			sym = c_sym.Sprint(" x ")
 		case 5: // Fatal1~5
-			sym = c_error.Sprint("-x-")
+			c_sym = c_error
+			sym = c_sym.Sprint("-x-")
 		default:
-			sym = c_error.Sprint(" • ")
+			c_sym = c_error
+			sym = c_sym.Sprint(" • ")
 		}
 
 		b := bytes.NewBuffer(make([]byte, 0, 128))
@@ -221,6 +236,10 @@ func (e *LogExporter) Export(ctx context.Context, records []sdklog.Record) error
 			e.writeGrpcEgressLine(b, &attr_grpc)
 		default:
 			e.writeLogLine(b, body, rest)
+		}
+		if status_msg != "" {
+			b.WriteString(c_faint.Sprint(" - "))
+			b.WriteString(c_sym.Sprint(status_msg))
 		}
 		b.WriteByte('\n')
 

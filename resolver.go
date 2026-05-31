@@ -6,11 +6,14 @@ import (
 	"fmt"
 
 	olog "go.opentelemetry.io/otel/log"
+	nooplogger "go.opentelemetry.io/otel/log/noop"
 	ometric "go.opentelemetry.io/otel/metric"
+	noopmeter "go.opentelemetry.io/otel/metric/noop"
 	"go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/trace"
 	otrace "go.opentelemetry.io/otel/trace"
+	nooptracer "go.opentelemetry.io/otel/trace/noop"
 )
 
 // Resolver constructs providers from the config it is based on.
@@ -114,6 +117,8 @@ func (r *resolver) Shutdown(ctx context.Context) error {
 }
 
 func (r *resolver) Tracer(ctx context.Context, name string, opts ...trace.TracerProviderOption) (otrace.TracerProvider, error) {
+	noop := nooptracer.NewTracerProvider()
+
 	id := Id("tracer").WithName(name)
 	if r.providers == nil {
 		r.providers = map[Id]*provider{}
@@ -124,7 +129,7 @@ func (r *resolver) Tracer(ctx context.Context, name string, opts ...trace.Tracer
 
 	c, ok := r.config.Providers[id]
 	if !ok {
-		return nil, ErrNotExist
+		return noop, ErrNotExist
 	}
 
 	components := map[Id]any{}
@@ -151,7 +156,7 @@ func (r *resolver) Tracer(ctx context.Context, name string, opts ...trace.Tracer
 			opts = append(opts, opts_...)
 			return nil
 		}(); err != nil {
-			return nil, fmt.Errorf("processor %q: %w", id.String(), err)
+			return noop, fmt.Errorf("processor %q: %w", id.String(), err)
 		}
 	}
 	for _, id := range c.Exporters {
@@ -175,7 +180,7 @@ func (r *resolver) Tracer(ctx context.Context, name string, opts ...trace.Tracer
 			opts = append(opts, opts_...)
 			return nil
 		}(); err != nil {
-			return nil, fmt.Errorf("exporter %q: %w", id.String(), err)
+			return noop, fmt.Errorf("exporter %q: %w", id.String(), err)
 		}
 
 	}
@@ -189,6 +194,8 @@ func (r *resolver) Tracer(ctx context.Context, name string, opts ...trace.Tracer
 }
 
 func (r *resolver) Meter(ctx context.Context, name string, opts ...metric.Option) (ometric.MeterProvider, error) {
+	noop := noopmeter.NewMeterProvider()
+
 	id := Id("meter").WithName(name)
 	if r.providers == nil {
 		r.providers = map[Id]*provider{}
@@ -199,7 +206,7 @@ func (r *resolver) Meter(ctx context.Context, name string, opts ...metric.Option
 
 	c, ok := r.config.Providers[id]
 	if !ok {
-		return nil, ErrNotExist
+		return noop, ErrNotExist
 	}
 
 	components := map[Id]any{}
@@ -226,7 +233,7 @@ func (r *resolver) Meter(ctx context.Context, name string, opts ...metric.Option
 			opts = append(opts, opts_...)
 			return nil
 		}(); err != nil {
-			return nil, fmt.Errorf("processor %q: %w", id.String(), err)
+			return noop, fmt.Errorf("processor %q: %w", id.String(), err)
 		}
 	}
 	for _, id := range c.Exporters {
@@ -254,7 +261,7 @@ func (r *resolver) Meter(ctx context.Context, name string, opts ...metric.Option
 
 			return ErrUnimplemented
 		}(); err != nil {
-			return nil, fmt.Errorf("exporter %q: %w", id.String(), err)
+			return noop, fmt.Errorf("exporter %q: %w", id.String(), err)
 		}
 
 	}
@@ -268,6 +275,8 @@ func (r *resolver) Meter(ctx context.Context, name string, opts ...metric.Option
 }
 
 func (r *resolver) Logger(ctx context.Context, name string, opts ...log.LoggerProviderOption) (olog.LoggerProvider, error) {
+	noop := nooplogger.NewLoggerProvider()
+
 	id := Id("logger").WithName(name)
 	if r.providers == nil {
 		r.providers = map[Id]*provider{}
@@ -305,7 +314,7 @@ func (r *resolver) Logger(ctx context.Context, name string, opts ...log.LoggerPr
 			opts = append(opts, opts_...)
 			return nil
 		}(); err != nil {
-			return nil, fmt.Errorf("processor %q: %w", id.String(), err)
+			return noop, fmt.Errorf("processor %q: %w", id.String(), err)
 		}
 	}
 	for _, id := range c.Exporters {
@@ -330,7 +339,7 @@ func (r *resolver) Logger(ctx context.Context, name string, opts ...log.LoggerPr
 			opts = append(opts, opts_...)
 			return nil
 		}(); err != nil {
-			return nil, fmt.Errorf("exporter %q: %w", id.String(), err)
+			return noop, fmt.Errorf("exporter %q: %w", id.String(), err)
 		}
 	}
 

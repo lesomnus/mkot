@@ -268,16 +268,7 @@ func (*LogExporter) writeLogLine(w *bytes.Buffer, msg string, attrs []log.KeyVal
 		w.WriteString(attr.Key)
 		w.WriteString("=")
 
-		c := attr_colors[attr.Value.Kind()]
-		switch attr.Value.Kind() {
-		case log.KindBool,
-			log.KindInt64,
-			log.KindString:
-			c.Fprint(w, attr.Value.String())
-		case log.KindFloat64:
-			v := attr.Value.AsFloat64()
-			c.Fprintf(w, "%.[1]*g", 3, v)
-		}
+		renderAttrValue(w, attr.Value)
 	}
 }
 

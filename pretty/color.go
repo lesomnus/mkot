@@ -73,6 +73,9 @@ var (
 		color.RGB(0, 77, 77),    // rgb(0, 77, 77)    - Teal Night
 		color.RGB(72, 61, 178),  // rgb(72, 61, 178)  - Royal Indigo
 	}
+	c_bracket = color.New(color.FgWhite, color.Faint)
+	c_map_key = color.RGB(180, 160, 100) // rgb(180, 160, 100) - Muted Gold
+
 	attr_colors = map[log.Kind]*color.Color{
 		log.KindBool:    color.RGB(50, 100, 100), // rgb(50, 100, 100) - Dark Muted Cyan
 		log.KindFloat64: color.RGB(129, 76, 129), // rgb(129, 76, 129) - Dark Muted Purple

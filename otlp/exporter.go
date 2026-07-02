@@ -15,6 +15,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/keepalive"
 )
 
 var _ mkot.ExporterConfig = (*ExporterConfig)(nil)
@@ -71,6 +72,14 @@ type ExporterConfig struct {
 
 	Retry mkot.RetryConfig `yaml:"retry_on_failure,omitempty"`
 	Queue mkot.QueueConfig `yaml:"sending_queue,omitempty"`
+
+	// Interval is the metric push period. Zero uses the SDK default (60s).
+	// Not part of the collector schema (the SDK owns the push cadence).
+	Interval time.Duration `yaml:"interval,omitempty"`
+
+	// Temporality selects the metric aggregation temporality: "cumulative"
+	// (default) or "delta". Not part of the collector schema.
+	Temporality string `yaml:"temporality,omitempty"`
 }
 
 func (e ExporterConfig) SpanExporter(ctx context.Context) (trace.SpanExporter, []trace.TracerProviderOption, error) {
@@ -79,10 +88,11 @@ func (e ExporterConfig) SpanExporter(ctx context.Context) (trace.SpanExporter, [
 		return nil, nil, fmt.Errorf("build conn options: %w", err)
 	}
 
+	// Unstarted: [mkot.Resolver.Start] is the single starter.
 	v := otlptracegrpc.NewUnstarted(opts...)
 
 	p := e.Queue.BuildSpanProcessor(v)
-	return v, []trace.TracerProviderOption{trace.WithSpanProcessor(p)}, nil
+	return mkot.SpanComponent(v, p), []trace.TracerProviderOption{trace.WithSpanProcessor(p)}, nil
 }
 
 func (e ExporterConfig) spanOpts() ([]otlptracegrpc.Option, error) {
@@ -110,11 +120,29 @@ func (e ExporterConfig) spanOpts() ([]otlptracegrpc.Option, error) {
 	if e.Compression != "" {
 		opts = append(opts, otlptracegrpc.WithCompressor(e.Compression))
 	}
+	if h := e.headers(); h != nil {
+		opts = append(opts, otlptracegrpc.WithHeaders(h))
+	}
+	p, ok, err := e.retryPolicy()
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		opts = append(opts, otlptracegrpc.WithRetry(otlptracegrpc.RetryConfig{
+			Enabled:         p.enabled,
+			InitialInterval: p.initial,
+			MaxInterval:     p.max,
+			MaxElapsedTime:  p.elapsed,
+		}))
+	}
 
 	return opts, nil
 }
 
-func (e ExporterConfig) MetricExporter(ctx context.Context) (metric.Exporter, []metric.Option, error) {
+// MetricReader wires a periodic OTLP push. The reader is the lifecycle
+// component: its Shutdown flushes the final collection before closing the
+// exporter.
+func (e ExporterConfig) MetricReader(ctx context.Context) (metric.Reader, []metric.Option, error) {
 	opts, err := e.metricOpts()
 	if err != nil {
 		return nil, nil, fmt.Errorf("build conn options: %w", err)
@@ -125,7 +153,12 @@ func (e ExporterConfig) MetricExporter(ctx context.Context) (metric.Exporter, []
 		return nil, nil, fmt.Errorf("create gRPC metric exporter: %w", err)
 	}
 
-	return v, []metric.Option{metric.WithReader(metric.NewPeriodicReader(v))}, nil
+	ropts := []metric.PeriodicReaderOption{}
+	if e.Interval > 0 {
+		ropts = append(ropts, metric.WithInterval(e.Interval))
+	}
+	r := metric.NewPeriodicReader(v, ropts...)
+	return r, []metric.Option{metric.WithReader(r)}, nil
 }
 
 func (e ExporterConfig) metricOpts() ([]otlpmetricgrpc.Option, error) {
@@ -153,6 +186,32 @@ func (e ExporterConfig) metricOpts() ([]otlpmetricgrpc.Option, error) {
 	if e.Compression != "" {
 		opts = append(opts, otlpmetricgrpc.WithCompressor(e.Compression))
 	}
+	if h := e.headers(); h != nil {
+		opts = append(opts, otlpmetricgrpc.WithHeaders(h))
+	}
+	p, ok, err := e.retryPolicy()
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		opts = append(opts, otlpmetricgrpc.WithRetry(otlpmetricgrpc.RetryConfig{
+			Enabled:         p.enabled,
+			InitialInterval: p.initial,
+			MaxInterval:     p.max,
+			MaxElapsedTime:  p.elapsed,
+		}))
+	}
+
+	switch e.Temporality {
+	case "", "cumulative":
+	case "delta":
+		// The SDK's spec-standard delta preference: counters and histograms go
+		// delta, everything else (gauges, up-down counters) stays cumulative — a
+		// delta gauge would vanish from exports unless re-recorded every cycle.
+		opts = append(opts, otlpmetricgrpc.WithTemporalitySelector(metric.DeltaTemporalitySelector))
+	default:
+		return nil, fmt.Errorf("unknown temporality %q (want cumulative or delta)", e.Temporality)
+	}
 
 	return opts, nil
 }
@@ -169,7 +228,7 @@ func (e ExporterConfig) LogExporter(ctx context.Context) (log.Exporter, []log.Lo
 	}
 
 	p := e.Queue.BuildLogProcessor(v)
-	return v, []log.LoggerProviderOption{log.WithProcessor(p)}, nil
+	return mkot.LogComponent(v, p), []log.LoggerProviderOption{log.WithProcessor(p)}, nil
 }
 
 func (e ExporterConfig) logOpts() ([]otlploggrpc.Option, error) {
@@ -197,6 +256,21 @@ func (e ExporterConfig) logOpts() ([]otlploggrpc.Option, error) {
 	if e.Compression != "" {
 		opts = append(opts, otlploggrpc.WithCompressor(e.Compression))
 	}
+	if h := e.headers(); h != nil {
+		opts = append(opts, otlploggrpc.WithHeaders(h))
+	}
+	p, ok, err := e.retryPolicy()
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		opts = append(opts, otlploggrpc.WithRetry(otlploggrpc.RetryConfig{
+			Enabled:         p.enabled,
+			InitialInterval: p.initial,
+			MaxInterval:     p.max,
+			MaxElapsedTime:  p.elapsed,
+		}))
+	}
 
 	return opts, nil
 }
@@ -212,8 +286,70 @@ func (e ExporterConfig) dialOpts() ([]grpc.DialOption, error) {
 	if e.Authority != "" {
 		opts = append(opts, grpc.WithAuthority(e.Authority))
 	}
+	if e.Keepalive != nil && e.Keepalive.Time > 0 {
+		// Only with an explicit ping interval: grpc clamps Time=0 up to its 10s
+		// minimum, which would silently ENABLE keepalive pings for an empty block.
+		opts = append(opts, grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:                e.Keepalive.Time,
+			Timeout:             e.Keepalive.Timeout,
+			PermitWithoutStream: e.Keepalive.PermitWithoutStream,
+		}))
+	}
+	if e.WaitForReady {
+		opts = append(opts, grpc.WithDefaultCallOptions(grpc.WaitForReady(true)))
+	}
+	if e.BalancerName != "" {
+		opts = append(opts, grpc.WithDefaultServiceConfig(fmt.Sprintf(`{"loadBalancingConfig": [{%q: {}}]}`, e.BalancerName)))
+	}
 
 	return opts, nil
+}
+
+// headers flattens the opaque name/value list for the exporter options.
+func (e ExporterConfig) headers() map[string]string {
+	if len(e.Headers) == 0 {
+		return nil
+	}
+	m := make(map[string]string, len(e.Headers))
+	for name, value := range e.Headers.Iter {
+		m[name] = string(value)
+	}
+	return m
+}
+
+type retryPolicy struct {
+	enabled bool
+	initial time.Duration
+	max     time.Duration
+	elapsed time.Duration
+}
+
+// retryPolicy maps retry_on_failure onto the exporter retry settings; ok=false
+// when the config is untouched so the exporter defaults stay in effect.
+func (e ExporterConfig) retryPolicy() (retryPolicy, bool, error) {
+	c := e.Retry
+	// The OTel SDK exporters cannot express these knobs (their backoff factors
+	// are fixed); reject rather than silently drop the tuning.
+	if c.RandomizationFactor != 0 || c.Multiplier != 0 {
+		return retryPolicy{}, false, fmt.Errorf("retry_on_failure: randomization_factor and multiplier are not supported by the OTLP gRPC exporter")
+	}
+	if c.Enabled == nil && c.InitialInterval == 0 && c.MaxInterval == 0 && c.MaxElapsedTime == 0 {
+		return retryPolicy{}, false, nil
+	}
+	p := retryPolicy{
+		enabled: c.IsEnabled(),
+		initial: c.InitialInterval,
+		max:     c.MaxInterval,
+		elapsed: c.MaxElapsedTime, // 0 = never stop retrying, as documented
+	}
+	// A partial config must not produce zero backoff intervals (hot retry loop).
+	if p.initial <= 0 {
+		p.initial = 5 * time.Second
+	}
+	if p.max <= 0 {
+		p.max = 30 * time.Second
+	}
+	return p, true, nil
 }
 
 type KeepaliveConfig struct {

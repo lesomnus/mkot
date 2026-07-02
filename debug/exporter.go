@@ -29,6 +29,21 @@ type ExporterConfig struct {
 	Queue mkot.QueueConfig `yaml:"sending_queue,omitempty"`
 }
 
+// queue is the effective queue config: debug output is meant to be read live,
+// so an entirely-unset sending_queue means synchronous output rather than
+// QueueConfig's batch-by-default. Any explicit setting is an opt-in and is
+// honored as-is.
+func (e ExporterConfig) queue() mkot.QueueConfig {
+	c := e.Queue
+	untouched := c.Enabled == nil && c.NumConsumers == 0 && !c.WaitForResult &&
+		!c.BlockOnOverflow && c.QueueSize == 0 && c.Batch == (mkot.BatchConfig{})
+	if untouched {
+		disabled := false
+		c.Enabled = &disabled
+	}
+	return c
+}
+
 func (e ExporterConfig) SpanExporter(ctx context.Context) (trace.SpanExporter, []trace.TracerProviderOption, error) {
 	w, err := e.open()
 	if err != nil {
@@ -40,11 +55,11 @@ func (e ExporterConfig) SpanExporter(ctx context.Context) (trace.SpanExporter, [
 		return nil, nil, err
 	}
 
-	p := e.Queue.BuildSpanProcessor(v)
-	return v, []trace.TracerProviderOption{trace.WithSpanProcessor(p)}, nil
+	p := e.queue().BuildSpanProcessor(v)
+	return mkot.SpanComponent(v, p), []trace.TracerProviderOption{trace.WithSpanProcessor(p)}, nil
 }
 
-func (e ExporterConfig) MetricExporter(ctx context.Context) (metric.Exporter, []metric.Option, error) {
+func (e ExporterConfig) MetricReader(ctx context.Context) (metric.Reader, []metric.Option, error) {
 	w, err := e.open()
 	if err != nil {
 		return nil, nil, fmt.Errorf("open: %w", err)
@@ -55,7 +70,10 @@ func (e ExporterConfig) MetricExporter(ctx context.Context) (metric.Exporter, []
 		return nil, nil, err
 	}
 
-	return v, []metric.Option{metric.WithReader(metric.NewPeriodicReader(v))}, nil
+	// The reader is the lifecycle component: its Shutdown flushes the final
+	// collection before closing the exporter.
+	r := metric.NewPeriodicReader(v)
+	return r, []metric.Option{metric.WithReader(r)}, nil
 }
 
 func (e ExporterConfig) LogExporter(ctx context.Context) (log.Exporter, []log.LoggerProviderOption, error) {
@@ -69,8 +87,8 @@ func (e ExporterConfig) LogExporter(ctx context.Context) (log.Exporter, []log.Lo
 		return nil, nil, err
 	}
 
-	p := e.Queue.BuildLogProcessor(v)
-	return v, []log.LoggerProviderOption{log.WithProcessor(p)}, nil
+	p := e.queue().BuildLogProcessor(v)
+	return mkot.LogComponent(v, p), []log.LoggerProviderOption{log.WithProcessor(p)}, nil
 }
 
 func (e ExporterConfig) open() (io.WriteCloser, error) {

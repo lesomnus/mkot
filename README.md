@@ -39,7 +39,7 @@ import (
 	"context"
 
 	"github.com/lesomnus/mkot"
-	_ "github.com/lesomnus/mkot/exporters/otlp"
+	_ "github.com/lesomnus/mkot/otlp"
 	"gopkg.in/yaml.v3"
 )
 

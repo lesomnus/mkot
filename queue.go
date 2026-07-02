@@ -49,11 +49,19 @@ func (c QueueConfig) BuildSpanProcessor(v trace.SpanExporter) trace.SpanProcesso
 		return trace.NewSimpleSpanProcessor(v)
 	}
 
-	return trace.NewBatchSpanProcessor(v,
-		trace.WithMaxQueueSize(int(c.QueueSize)),
-		trace.WithBatchTimeout(c.Batch.FlushTimeout),
-		trace.WithMaxExportBatchSize(int(c.Batch.MaxSize)),
-	)
+	// Unset (zero) values must keep the SDK defaults: the trace batcher does
+	// not clamp them, and a zero max-queue batcher silently drops every span.
+	opts := []trace.BatchSpanProcessorOption{}
+	if c.QueueSize > 0 {
+		opts = append(opts, trace.WithMaxQueueSize(int(c.QueueSize)))
+	}
+	if c.Batch.FlushTimeout > 0 {
+		opts = append(opts, trace.WithBatchTimeout(c.Batch.FlushTimeout))
+	}
+	if c.Batch.MaxSize > 0 {
+		opts = append(opts, trace.WithMaxExportBatchSize(int(c.Batch.MaxSize)))
+	}
+	return trace.NewBatchSpanProcessor(v, opts...)
 }
 
 func (c QueueConfig) BuildLogProcessor(v log.Exporter) log.Processor {
@@ -61,11 +69,17 @@ func (c QueueConfig) BuildLogProcessor(v log.Exporter) log.Processor {
 		return log.NewSimpleProcessor(v)
 	}
 
-	return log.NewBatchProcessor(v,
-		log.WithMaxQueueSize(int(c.QueueSize)),
-		log.WithExportInterval(c.Batch.FlushTimeout),
-		log.WithExportMaxBatchSize(int(c.Batch.MaxSize)),
-	)
+	opts := []log.BatchProcessorOption{}
+	if c.QueueSize > 0 {
+		opts = append(opts, log.WithMaxQueueSize(int(c.QueueSize)))
+	}
+	if c.Batch.FlushTimeout > 0 {
+		opts = append(opts, log.WithExportInterval(c.Batch.FlushTimeout))
+	}
+	if c.Batch.MaxSize > 0 {
+		opts = append(opts, log.WithExportMaxBatchSize(int(c.Batch.MaxSize)))
+	}
+	return log.NewBatchProcessor(v, opts...)
 }
 
 // BatchConfig defines a configuration for batching requests based on a timeout and a minimum number of items.

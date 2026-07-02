@@ -150,7 +150,10 @@ func (c ClientTlsConfig) Build() (*tls.Config, error) {
 
 	return &tls.Config{
 		Certificates: certs,
-		ClientCAs:    pool,
+		// This is a CLIENT config: the peer (server) certificate is verified
+		// against RootCAs. ClientCAs is a server-side field and would leave a
+		// configured CA silently unused.
+		RootCAs: pool,
 		// MinVersion:         minVersion,
 		// MaxVersion:         maxVersion,
 		// CipherSuites:       cipherSuites,

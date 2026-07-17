@@ -2,7 +2,10 @@ package otlp
 
 import (
 	"context"
+	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -18,6 +21,7 @@ import (
 	collectortracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestConfigDecode(t *testing.T) {
@@ -136,6 +140,77 @@ func TestCompression(t *testing.T) {
 			}
 		}
 	})
+}
+
+// protocol: http must build the OTLP/HTTP exporter and deliver spans as
+// protobuf over HTTP to {endpoint}/v1/traces, with http:// implying insecure.
+func TestHTTPProtocolConnects(t *testing.T) {
+	ctx, x := x.New(t)
+	got := make(chan string, 4)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var req collectortracepb.ExportTraceServiceRequest
+		if err := proto.Unmarshal(body, &req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		for _, rs := range req.ResourceSpans {
+			for _, ss := range rs.ScopeSpans {
+				for _, s := range ss.Spans {
+					got <- s.Name
+				}
+			}
+		}
+		resp, _ := proto.Marshal(&collectortracepb.ExportTraceServiceResponse{})
+		w.Header().Set("Content-Type", "application/x-protobuf")
+		_, _ = w.Write(resp)
+	}))
+	t.Cleanup(srv.Close)
+
+	src := `
+exporters:
+  otlp:
+    protocol: http
+    endpoint: "` + srv.URL + `"
+providers:
+  tracer:
+    exporters: [otlp]
+`
+	var c mkot.Config
+	x.NoError(yaml.Unmarshal([]byte(src), &c))
+	r := mkot.Make(ctx, &c)
+	tp, err := r.Tracer(ctx, "")
+	x.NoError(err)
+	x.NoError(r.Start(ctx))
+
+	_, span := tp.Tracer("test").Start(ctx, "mkot.http.span")
+	span.End()
+	x.NoError(r.Shutdown(context.Background()))
+
+	select {
+	case name := <-got:
+		x.Eq("mkot.http.span", name)
+	case <-time.After(3 * time.Second):
+		t.Fatal("no export received over OTLP/HTTP")
+	}
+}
+
+// gRPC-only knobs must be rejected under protocol http rather than dropped.
+func TestHTTPRejectsGRPCOnlyKnobs(t *testing.T) {
+	for _, e := range []ExporterConfig{
+		{Protocol: "http", Authority: "x"},
+		{Protocol: "http", BalancerName: "round_robin"},
+		{Protocol: "http", ReadBufferSize: 1024},
+		{Protocol: "http", ReconnectionPeriod: time.Second},
+	} {
+		if _, err := e.spanHTTPOpts(); err == nil {
+			t.Fatalf("expected an error for %+v", e)
+		}
+	}
+	// Unknown protocol errors.
+	if _, err := (ExporterConfig{Protocol: "thrift"}).protocol(); err == nil {
+		t.Fatal("unknown protocol must error")
+	}
 }
 
 func TestEndpointScheme(t *testing.T) {

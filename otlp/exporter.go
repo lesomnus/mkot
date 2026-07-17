@@ -30,9 +30,16 @@ type ExporterConfig struct {
 
 	// Copied from https://github.com/open-telemetry/opentelemetry-collector/blob/41c3a7661559975374656a2fe886c6de0b726052/config/confighttp/client.go
 
-	// The target to which the exporter is going to send traces or metrics,
-	// using the gRPC protocol. The valid syntax is described at
-	// https://github.com/grpc/grpc/blob/master/doc/naming.md.
+	// Protocol selects the transport: "grpc" (default) or "http" (aka
+	// "http/protobuf"). Mirrors the collector's OTLP protocol selection. The
+	// gRPC-only knobs (keepalive, read/write buffers, wait_for_ready,
+	// balancer_name, authority, reconnection_period) are rejected under http.
+	Protocol string `yaml:"protocol,omitempty"`
+
+	// The target to which the exporter is going to send traces or metrics.
+	// For grpc the syntax is https://github.com/grpc/grpc/blob/master/doc/naming.md;
+	// for http it is a base URL. A scheme (http://, https://) is honored and
+	// http:// implies insecure.
 	Endpoint string `yaml:"endpoint,omitempty"`
 
 	// The compression key for supported compression types within collector.
@@ -100,13 +107,11 @@ type ExporterConfig struct {
 }
 
 func (e ExporterConfig) SpanExporter(ctx context.Context) (trace.SpanExporter, []trace.TracerProviderOption, error) {
-	opts, err := e.spanOpts()
-	if err != nil {
-		return nil, nil, fmt.Errorf("build conn options: %w", err)
-	}
-
 	// Unstarted: [mkot.Resolver.Start] is the single starter.
-	v := otlptracegrpc.NewUnstarted(opts...)
+	v, err := e.newSpanExporter(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	p, err := e.Queue.BuildSpanProcessor(v)
 	if err != nil {
@@ -175,19 +180,14 @@ func (e ExporterConfig) spanOpts() ([]otlptracegrpc.Option, error) {
 	return opts, nil
 }
 
-// MetricExporter returns the raw OTLP/gRPC metric exporter for callers that
-// push pre-built metricdata directly (e.g. replaying recorded data with
-// historical timestamps) instead of sampling instruments through a reader. The
-// caller owns its lifecycle and must Shutdown it.
+// MetricExporter returns the raw OTLP metric exporter for callers that push
+// pre-built metricdata directly (e.g. replaying recorded data with historical
+// timestamps) instead of sampling instruments through a reader. The caller owns
+// its lifecycle and must Shutdown it.
 func (e ExporterConfig) MetricExporter(ctx context.Context) (metric.Exporter, []metric.Option, error) {
-	opts, err := e.metricOpts()
+	v, err := e.newMetricExporter(ctx)
 	if err != nil {
-		return nil, nil, fmt.Errorf("build conn options: %w", err)
-	}
-
-	v, err := otlpmetricgrpc.New(ctx, opts...)
-	if err != nil {
-		return nil, nil, fmt.Errorf("create gRPC metric exporter: %w", err)
+		return nil, nil, err
 	}
 
 	mopts, err := e.meterProviderOpts()
@@ -201,14 +201,9 @@ func (e ExporterConfig) MetricExporter(ctx context.Context) (metric.Exporter, []
 // component: its Shutdown flushes the final collection before closing the
 // exporter.
 func (e ExporterConfig) MetricReader(ctx context.Context) (metric.Reader, []metric.Option, error) {
-	opts, err := e.metricOpts()
+	v, err := e.newMetricExporter(ctx)
 	if err != nil {
-		return nil, nil, fmt.Errorf("build conn options: %w", err)
-	}
-
-	v, err := otlpmetricgrpc.New(ctx, opts...)
-	if err != nil {
-		return nil, nil, fmt.Errorf("create gRPC metric exporter: %w", err)
+		return nil, nil, err
 	}
 
 	ropts := []metric.PeriodicReaderOption{}
@@ -306,14 +301,9 @@ func (e ExporterConfig) metricOpts() ([]otlpmetricgrpc.Option, error) {
 }
 
 func (e ExporterConfig) LogExporter(ctx context.Context) (log.Exporter, []log.LoggerProviderOption, error) {
-	opts, err := e.logOpts()
+	v, err := e.newLogExporter(ctx)
 	if err != nil {
-		return nil, nil, fmt.Errorf("build conn options: %w", err)
-	}
-
-	v, err := otlploggrpc.New(ctx, opts...)
-	if err != nil {
-		return nil, nil, fmt.Errorf("create gRPC log exporter: %w", err)
+		return nil, nil, err
 	}
 
 	p, err := e.Queue.BuildLogProcessor(v)
@@ -478,7 +468,7 @@ func (e ExporterConfig) compressor() (string, error) {
 	case "gzip":
 		return "gzip", nil
 	default:
-		return "", fmt.Errorf("unsupported compression %q (only gzip is supported by the OTLP gRPC exporter)", e.Compression)
+		return "", fmt.Errorf("unsupported compression %q (only gzip is supported)", e.Compression)
 	}
 }
 

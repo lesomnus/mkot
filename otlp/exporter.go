@@ -117,8 +117,10 @@ func (e ExporterConfig) spanOpts() ([]otlptracegrpc.Option, error) {
 	if e.Endpoint != "" {
 		opts = append(opts, otlptracegrpc.WithEndpoint(e.Endpoint))
 	}
-	if e.Compression != "" {
-		opts = append(opts, otlptracegrpc.WithCompressor(e.Compression))
+	if c, err := e.compressor(); err != nil {
+		return nil, err
+	} else if c != "" {
+		opts = append(opts, otlptracegrpc.WithCompressor(c))
 	}
 	if h := e.headers(); h != nil {
 		opts = append(opts, otlptracegrpc.WithHeaders(h))
@@ -201,8 +203,10 @@ func (e ExporterConfig) metricOpts() ([]otlpmetricgrpc.Option, error) {
 	if e.Endpoint != "" {
 		opts = append(opts, otlpmetricgrpc.WithEndpoint(e.Endpoint))
 	}
-	if e.Compression != "" {
-		opts = append(opts, otlpmetricgrpc.WithCompressor(e.Compression))
+	if c, err := e.compressor(); err != nil {
+		return nil, err
+	} else if c != "" {
+		opts = append(opts, otlpmetricgrpc.WithCompressor(c))
 	}
 	if h := e.headers(); h != nil {
 		opts = append(opts, otlpmetricgrpc.WithHeaders(h))
@@ -271,8 +275,10 @@ func (e ExporterConfig) logOpts() ([]otlploggrpc.Option, error) {
 	if e.Endpoint != "" {
 		opts = append(opts, otlploggrpc.WithEndpoint(e.Endpoint))
 	}
-	if e.Compression != "" {
-		opts = append(opts, otlploggrpc.WithCompressor(e.Compression))
+	if c, err := e.compressor(); err != nil {
+		return nil, err
+	} else if c != "" {
+		opts = append(opts, otlploggrpc.WithCompressor(c))
 	}
 	if h := e.headers(); h != nil {
 		opts = append(opts, otlploggrpc.WithHeaders(h))
@@ -321,6 +327,22 @@ func (e ExporterConfig) dialOpts() ([]grpc.DialOption, error) {
 	}
 
 	return opts, nil
+}
+
+// compressor validates the configured compression and returns the gRPC
+// compressor name to use ("" means none). Only gzip is registered by the
+// SDK/grpc; any other value (zstd, snappy, zlib, ...) would be accepted here,
+// silently sent UNCOMPRESSED, and then fail at export time with "Compressor is
+// not installed", so reject it up front instead of dropping the intent.
+func (e ExporterConfig) compressor() (string, error) {
+	switch e.Compression {
+	case "", "none":
+		return "", nil
+	case "gzip":
+		return "gzip", nil
+	default:
+		return "", fmt.Errorf("unsupported compression %q (only gzip is supported by the OTLP gRPC exporter)", e.Compression)
+	}
 }
 
 // headers flattens the opaque name/value list for the exporter options.

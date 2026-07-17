@@ -96,6 +96,29 @@ func TestTemporality(t *testing.T) {
 	})
 }
 
+func TestCompression(t *testing.T) {
+	t.Run("gzip and none are accepted", func(t *testing.T) {
+		_, x := x.New(t)
+		for _, v := range []string{"", "none", "gzip"} {
+			_, err := (ExporterConfig{Compression: v}).spanOpts()
+			x.NoError(err)
+		}
+	})
+	t.Run("unsupported values are rejected, not sent uncompressed", func(t *testing.T) {
+		for _, v := range []string{"zstd", "snappy", "deflate"} {
+			if _, err := (ExporterConfig{Compression: v}).spanOpts(); err == nil {
+				t.Fatalf("compression %q must error (grpc only registers gzip)", v)
+			}
+			if _, err := (ExporterConfig{Compression: v}).metricOpts(); err == nil {
+				t.Fatalf("compression %q must error in metricOpts", v)
+			}
+			if _, err := (ExporterConfig{Compression: v}).logOpts(); err == nil {
+				t.Fatalf("compression %q must error in logOpts", v)
+			}
+		}
+	})
+}
+
 // metricSink records the metric names pushed to it over OTLP/gRPC.
 type metricSink struct {
 	collectormetricspb.UnimplementedMetricsServiceServer

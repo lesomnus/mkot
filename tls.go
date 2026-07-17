@@ -10,10 +10,43 @@ import (
 	"crypto/x509"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/lesomnus/mkot/opaque"
 )
+
+// certReloader re-reads a cert/key pair from disk when the reload interval has
+// elapsed, so a rotated client certificate is picked up without a restart. On a
+// transient read/parse error it keeps serving the last good keypair.
+type certReloader struct {
+	certFile string
+	keyFile  string
+	interval time.Duration
+
+	mu       sync.Mutex
+	cert     *tls.Certificate
+	loadedAt time.Time
+}
+
+func (r *certReloader) get() (*tls.Certificate, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.cert != nil && time.Since(r.loadedAt) < r.interval {
+		return r.cert, nil
+	}
+	cert, err := tls.LoadX509KeyPair(r.certFile, r.keyFile)
+	if err != nil {
+		if r.cert != nil {
+			return r.cert, nil // keep the last good cert on a transient failure
+		}
+		return nil, err
+	}
+	r.cert = &cert
+	r.loadedAt = time.Now()
+	return r.cert, nil
+}
 
 // TLSConfig exposes the common client and server TLS configurations.
 // Note: Since there isn't anything specific to a server connection. Components
@@ -119,33 +152,49 @@ func (c ClientTlsConfig) Build() (*tls.Config, error) {
 	}
 
 	var certs []tls.Certificate
-	var cert_pem, key_pem []byte
-	if c.CertPem != "" {
-		cert_pem = []byte(c.CertPem)
-	} else if c.CertFile != "" {
-		var err error
-		cert_pem, err = os.ReadFile(c.CertFile)
-		if err != nil {
-			return nil, fmt.Errorf("read cert file: %w", err)
+	var get_client_cert func(*tls.CertificateRequestInfo) (*tls.Certificate, error)
+	if c.ReloadInterval > 0 {
+		// Reload only works for on-disk cert/key: an in-memory PEM cannot rotate.
+		// Serve a callback that re-reads the keypair once the interval elapses so
+		// a rotated client cert (cert-manager, SPIFFE) is picked up without a
+		// restart.
+		if c.CertFile == "" || c.KeyFile == "" {
+			return nil, fmt.Errorf("reload_interval requires cert_file and key_file")
 		}
-	}
-	if c.KeyPem != "" {
-		key_pem = []byte(c.KeyPem)
-	} else if c.KeyFile != "" {
-		var err error
-		key_pem, err = os.ReadFile(c.KeyFile)
-		if err != nil {
-			return nil, fmt.Errorf("read key file: %w", err)
+		r := &certReloader{certFile: c.CertFile, keyFile: c.KeyFile, interval: c.ReloadInterval}
+		if _, err := r.get(); err != nil { // fail fast on a bad initial keypair
+			return nil, fmt.Errorf("load TLS cert: %w", err)
 		}
-	}
-	if cert_pem != nil && key_pem != nil {
-		cert, err := tls.X509KeyPair(cert_pem, key_pem)
-		if err != nil {
-			return nil, fmt.Errorf("load TLS cert from PEM: %w", err)
+		get_client_cert = func(*tls.CertificateRequestInfo) (*tls.Certificate, error) { return r.get() }
+	} else {
+		var cert_pem, key_pem []byte
+		if c.CertPem != "" {
+			cert_pem = []byte(c.CertPem)
+		} else if c.CertFile != "" {
+			var err error
+			cert_pem, err = os.ReadFile(c.CertFile)
+			if err != nil {
+				return nil, fmt.Errorf("read cert file: %w", err)
+			}
 		}
-		certs = []tls.Certificate{cert}
-	} else if cert_pem != nil || key_pem != nil {
-		return nil, fmt.Errorf("both cert and key must be provided together")
+		if c.KeyPem != "" {
+			key_pem = []byte(c.KeyPem)
+		} else if c.KeyFile != "" {
+			var err error
+			key_pem, err = os.ReadFile(c.KeyFile)
+			if err != nil {
+				return nil, fmt.Errorf("read key file: %w", err)
+			}
+		}
+		if cert_pem != nil && key_pem != nil {
+			cert, err := tls.X509KeyPair(cert_pem, key_pem)
+			if err != nil {
+				return nil, fmt.Errorf("load TLS cert from PEM: %w", err)
+			}
+			certs = []tls.Certificate{cert}
+		} else if cert_pem != nil || key_pem != nil {
+			return nil, fmt.Errorf("both cert and key must be provided together")
+		}
 	}
 
 	var min_version, max_version uint16
@@ -171,7 +220,8 @@ func (c ClientTlsConfig) Build() (*tls.Config, error) {
 	}
 
 	return &tls.Config{
-		Certificates: certs,
+		Certificates:         certs,
+		GetClientCertificate: get_client_cert,
 		// This is a CLIENT config: the peer (server) certificate is verified
 		// against RootCAs. ClientCAs is a server-side field and would leave a
 		// configured CA silently unused.

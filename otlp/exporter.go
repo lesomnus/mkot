@@ -11,6 +11,7 @@ import (
 	"github.com/lesomnus/mkot/opaque"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/metric"
@@ -371,7 +372,14 @@ func (e ExporterConfig) dialOpts() ([]grpc.DialOption, error) {
 		opts = append(opts, grpc.WithDefaultServiceConfig(fmt.Sprintf(`{"loadBalancingConfig": [{%q: {}}]}`, e.BalancerName)))
 	}
 
-	return opts, nil
+	if len(opts) == 0 {
+		return opts, nil
+	}
+	// These are passed through otlp*grpc.WithDialOption, which REPLACES the SDK's
+	// seeded dial options (including its "OTel OTLP Exporter Go/<ver>" User-Agent).
+	// Re-seed the identifier so setting an unrelated dial knob (buffers, keepalive,
+	// authority, balancer) does not strip the header backends key on.
+	return append([]grpc.DialOption{grpc.WithUserAgent("OTel OTLP Exporter Go/" + otlptrace.Version())}, opts...), nil
 }
 
 // endpointHasScheme reports whether the endpoint carries an http/https scheme.

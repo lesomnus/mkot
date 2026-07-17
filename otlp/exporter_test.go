@@ -3,6 +3,7 @@ package otlp
 import (
 	"context"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -15,6 +16,7 @@ import (
 	collectormetricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	collectortracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 )
 
 func TestConfigDecode(t *testing.T) {
@@ -195,6 +197,64 @@ providers:
 	sink.mu.Lock()
 	defer sink.mu.Unlock()
 	x.Eq(true, sink.names["mkot.scheme.span"])
+}
+
+// uaSink records the gRPC User-Agent of the last export it received.
+type uaSink struct {
+	collectortracepb.UnimplementedTraceServiceServer
+	mu sync.Mutex
+	ua string
+}
+
+func (s *uaSink) Export(ctx context.Context, _ *collectortracepb.ExportTraceServiceRequest) (*collectortracepb.ExportTraceServiceResponse, error) {
+	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		s.mu.Lock()
+		s.ua = strings.Join(md.Get("user-agent"), " ")
+		s.mu.Unlock()
+	}
+	return &collectortracepb.ExportTraceServiceResponse{}, nil
+}
+
+// Setting a dial-level knob routes through WithDialOption, which replaces the
+// SDK's seeded dial options; the OTel exporter User-Agent identifier must
+// survive rather than degrade to a bare grpc-go client.
+func TestUserAgentPreservedWithDialOption(t *testing.T) {
+	ctx, x := x.New(t)
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	x.NoError(err)
+	sink := &uaSink{}
+	srv := grpc.NewServer()
+	collectortracepb.RegisterTraceServiceServer(srv, sink)
+	go srv.Serve(lis)
+	t.Cleanup(srv.Stop)
+
+	src := `
+exporters:
+  otlp:
+    endpoint: "` + lis.Addr().String() + `"
+    tls: { insecure: true }
+    read_buffer_size: 65536
+providers:
+  tracer:
+    exporters: [otlp]
+`
+	var c mkot.Config
+	err = yaml.Unmarshal([]byte(src), &c)
+	x.NoError(err)
+	r := mkot.Make(ctx, &c)
+	tp, err := r.Tracer(ctx, "")
+	x.NoError(err)
+	err = r.Start(ctx)
+	x.NoError(err)
+
+	_, span := tp.Tracer("test").Start(ctx, "mkot.ua.span")
+	span.End()
+	err = r.Shutdown(context.Background())
+	x.NoError(err)
+
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+	x.Contains(sink.ua, "OTel OTLP Exporter Go")
 }
 
 // metricSink records the metric names pushed to it over OTLP/gRPC.

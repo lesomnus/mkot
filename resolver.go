@@ -243,7 +243,12 @@ func (r *resolver) Meter(ctx context.Context, name string, opts ...metric.Option
 				return fmt.Errorf("not found")
 			}
 
-			if v, opts_, err := c.MetricExporter(ctx); err == nil {
+			// Prefer the reader: it is the lifecycle component. Its Shutdown
+			// drives the final Collect+Export and it honors the configured push
+			// interval. The bare-exporter path cannot flush on Shutdown because
+			// the resolver tracks the returned value as the shutdown component,
+			// and shutting down an exporter does not collect from its reader.
+			if v, opts_, err := c.MetricReader(ctx); err == nil {
 				components[id] = v
 				opts = append(opts, opts_...)
 				return nil
@@ -251,7 +256,7 @@ func (r *resolver) Meter(ctx context.Context, name string, opts ...metric.Option
 				return err
 			}
 
-			if v, opts_, err := c.MetricReader(ctx); err == nil {
+			if v, opts_, err := c.MetricExporter(ctx); err == nil {
 				components[id] = v
 				opts = append(opts, opts_...)
 				return nil

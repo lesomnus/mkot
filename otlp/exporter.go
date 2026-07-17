@@ -139,6 +139,24 @@ func (e ExporterConfig) spanOpts() ([]otlptracegrpc.Option, error) {
 	return opts, nil
 }
 
+// MetricExporter returns the raw OTLP/gRPC metric exporter for callers that
+// push pre-built metricdata directly (e.g. replaying recorded data with
+// historical timestamps) instead of sampling instruments through a reader. The
+// caller owns its lifecycle and must Shutdown it.
+func (e ExporterConfig) MetricExporter(ctx context.Context) (metric.Exporter, []metric.Option, error) {
+	opts, err := e.metricOpts()
+	if err != nil {
+		return nil, nil, fmt.Errorf("build conn options: %w", err)
+	}
+
+	v, err := otlpmetricgrpc.New(ctx, opts...)
+	if err != nil {
+		return nil, nil, fmt.Errorf("create gRPC metric exporter: %w", err)
+	}
+
+	return v, []metric.Option{metric.WithReader(metric.NewPeriodicReader(v))}, nil
+}
+
 // MetricReader wires a periodic OTLP push. The reader is the lifecycle
 // component: its Shutdown flushes the final collection before closing the
 // exporter.

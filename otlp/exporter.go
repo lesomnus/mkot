@@ -15,6 +15,7 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/exemplar"
 	"go.opentelemetry.io/otel/sdk/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -67,6 +68,10 @@ type ExporterConfig struct {
 	// (godoc.org/google.golang.org/grpc#WithAuthority)
 	Authority string `yaml:"authority,omitempty"`
 
+	// ReconnectionPeriod is the minimum time between gRPC connection attempts.
+	// Zero uses the SDK default. Not part of the collector schema.
+	ReconnectionPeriod time.Duration `yaml:"reconnection_period,omitempty"`
+
 	// // Auth configuration for outgoing RPCs.
 	// Auth configoptional.Optional[configauth.Config] `yaml:"auth,omitempty"`
 
@@ -87,6 +92,11 @@ type ExporterConfig struct {
 	// Temporality selects the metric aggregation temporality: "cumulative"
 	// (default), "delta", or "lowmemory". Not part of the collector schema.
 	Temporality string `yaml:"temporality,omitempty"`
+
+	// ExemplarFilter selects which measurements may become exemplars:
+	// "trace_based" (SDK default when unset), "always_on", or "always_off".
+	// Not part of the collector schema.
+	ExemplarFilter string `yaml:"exemplar_filter,omitempty"`
 }
 
 func (e ExporterConfig) SpanExporter(ctx context.Context) (trace.SpanExporter, []trace.TracerProviderOption, error) {
@@ -146,6 +156,9 @@ func (e ExporterConfig) spanOpts() ([]otlptracegrpc.Option, error) {
 	if e.Timeout > 0 {
 		opts = append(opts, otlptracegrpc.WithTimeout(e.Timeout))
 	}
+	if e.ReconnectionPeriod > 0 {
+		opts = append(opts, otlptracegrpc.WithReconnectionPeriod(e.ReconnectionPeriod))
+	}
 	p, ok, err := e.retryPolicy()
 	if err != nil {
 		return nil, err
@@ -177,7 +190,11 @@ func (e ExporterConfig) MetricExporter(ctx context.Context) (metric.Exporter, []
 		return nil, nil, fmt.Errorf("create gRPC metric exporter: %w", err)
 	}
 
-	return v, []metric.Option{metric.WithReader(metric.NewPeriodicReader(v))}, nil
+	mopts, err := e.meterProviderOpts()
+	if err != nil {
+		return nil, nil, err
+	}
+	return v, append([]metric.Option{metric.WithReader(metric.NewPeriodicReader(v))}, mopts...), nil
 }
 
 // MetricReader wires a periodic OTLP push. The reader is the lifecycle
@@ -204,8 +221,12 @@ func (e ExporterConfig) MetricReader(ctx context.Context) (metric.Reader, []metr
 		// 30s default.
 		ropts = append(ropts, metric.WithTimeout(e.Timeout))
 	}
+	mopts, err := e.meterProviderOpts()
+	if err != nil {
+		return nil, nil, err
+	}
 	r := metric.NewPeriodicReader(v, ropts...)
-	return r, []metric.Option{metric.WithReader(r)}, nil
+	return r, append([]metric.Option{metric.WithReader(r)}, mopts...), nil
 }
 
 func (e ExporterConfig) metricOpts() ([]otlpmetricgrpc.Option, error) {
@@ -248,6 +269,9 @@ func (e ExporterConfig) metricOpts() ([]otlpmetricgrpc.Option, error) {
 	}
 	if e.Timeout > 0 {
 		opts = append(opts, otlpmetricgrpc.WithTimeout(e.Timeout))
+	}
+	if e.ReconnectionPeriod > 0 {
+		opts = append(opts, otlpmetricgrpc.WithReconnectionPeriod(e.ReconnectionPeriod))
 	}
 	p, ok, err := e.retryPolicy()
 	if err != nil {
@@ -340,6 +364,9 @@ func (e ExporterConfig) logOpts() ([]otlploggrpc.Option, error) {
 	if e.Timeout > 0 {
 		opts = append(opts, otlploggrpc.WithTimeout(e.Timeout))
 	}
+	if e.ReconnectionPeriod > 0 {
+		opts = append(opts, otlploggrpc.WithReconnectionPeriod(e.ReconnectionPeriod))
+	}
 	p, ok, err := e.retryPolicy()
 	if err != nil {
 		return nil, err
@@ -419,6 +446,24 @@ func (e ExporterConfig) endpointHasScheme() (bool, error) {
 		return false, fmt.Errorf("unsupported endpoint scheme %q (want http or https)", u.Scheme)
 	}
 	return true, nil
+}
+
+// meterProviderOpts returns MeterProvider-level options not tied to the reader
+// (currently the exemplar filter). An empty selection leaves the SDK default
+// (trace_based).
+func (e ExporterConfig) meterProviderOpts() ([]metric.Option, error) {
+	switch e.ExemplarFilter {
+	case "":
+		return nil, nil
+	case "always_on":
+		return []metric.Option{metric.WithExemplarFilter(exemplar.AlwaysOnFilter)}, nil
+	case "always_off":
+		return []metric.Option{metric.WithExemplarFilter(exemplar.AlwaysOffFilter)}, nil
+	case "trace_based":
+		return []metric.Option{metric.WithExemplarFilter(exemplar.TraceBasedFilter)}, nil
+	default:
+		return nil, fmt.Errorf("unknown exemplar_filter %q (want always_on, always_off, or trace_based)", e.ExemplarFilter)
+	}
 }
 
 // compressor validates the configured compression and returns the gRPC

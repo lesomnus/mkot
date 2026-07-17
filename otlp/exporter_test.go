@@ -205,6 +205,19 @@ providers:
 	x.Eq(true, sink.names["mkot.scheme.span"])
 }
 
+func TestExemplarFilterAndReconnection(t *testing.T) {
+	_, x := x.New(t)
+	for _, v := range []string{"", "always_on", "always_off", "trace_based"} {
+		_, err := (ExporterConfig{ExemplarFilter: v}).meterProviderOpts()
+		x.NoError(err)
+	}
+	if _, err := (ExporterConfig{ExemplarFilter: "bogus"}).meterProviderOpts(); err == nil {
+		t.Fatal("unknown exemplar_filter must error")
+	}
+	_, err := (ExporterConfig{ReconnectionPeriod: time.Second}).spanOpts()
+	x.NoError(err)
+}
+
 func TestKeepalivePartialRejected(t *testing.T) {
 	_, x := x.New(t)
 	// timeout without time is a partial config that grpc would drop whole.

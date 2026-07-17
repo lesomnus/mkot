@@ -119,6 +119,73 @@ func TestCompression(t *testing.T) {
 	})
 }
 
+func TestEndpointScheme(t *testing.T) {
+	_, x := x.New(t)
+	for _, tc := range []struct {
+		ep     string
+		scheme bool
+		err    bool
+	}{
+		{"collector:4317", false, false},
+		{"https://collector:4317", true, false},
+		{"http://collector:4317", true, false},
+		{"ftp://collector:4317", false, true},
+	} {
+		got, err := (ExporterConfig{Endpoint: tc.ep}).endpointHasScheme()
+		if tc.err {
+			if err == nil {
+				t.Fatalf("%q: expected an error", tc.ep)
+			}
+			continue
+		}
+		x.NoError(err)
+		x.Eq(tc.scheme, got)
+	}
+	// A scheme-bearing endpoint must build cleanly (it goes through WithEndpointURL).
+	_, err := (ExporterConfig{Endpoint: "https://collector:4317"}).spanOpts()
+	x.NoError(err)
+}
+
+// An http:// endpoint scheme must imply insecure and actually connect without an
+// explicit tls block; before WithEndpointURL the whole URL was dialed as a
+// literal gRPC target and never connected.
+func TestSchemeEndpointConnects(t *testing.T) {
+	ctx, x := x.New(t)
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	x.NoError(err)
+	sink := &traceSink{}
+	srv := grpc.NewServer()
+	collectortracepb.RegisterTraceServiceServer(srv, sink)
+	go srv.Serve(lis)
+	t.Cleanup(srv.Stop)
+
+	src := `
+exporters:
+  otlp:
+    endpoint: "http://` + lis.Addr().String() + `"
+providers:
+  tracer:
+    exporters: [otlp]
+`
+	var c mkot.Config
+	err = yaml.Unmarshal([]byte(src), &c)
+	x.NoError(err)
+	r := mkot.Make(ctx, &c)
+	tp, err := r.Tracer(ctx, "")
+	x.NoError(err)
+	err = r.Start(ctx)
+	x.NoError(err)
+
+	_, span := tp.Tracer("test").Start(ctx, "mkot.scheme.span")
+	span.End()
+	err = r.Shutdown(context.Background())
+	x.NoError(err)
+
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+	x.Eq(true, sink.names["mkot.scheme.span"])
+}
+
 // metricSink records the metric names pushed to it over OTLP/gRPC.
 type metricSink struct {
 	collectormetricspb.UnimplementedMetricsServiceServer

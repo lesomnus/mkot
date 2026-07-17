@@ -3,6 +3,8 @@ package otlp
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/lesomnus/mkot"
@@ -115,7 +117,13 @@ func (e ExporterConfig) spanOpts() ([]otlptracegrpc.Option, error) {
 	}
 
 	if e.Endpoint != "" {
-		opts = append(opts, otlptracegrpc.WithEndpoint(e.Endpoint))
+		if scheme, err := e.endpointHasScheme(); err != nil {
+			return nil, err
+		} else if scheme {
+			opts = append(opts, otlptracegrpc.WithEndpointURL(e.Endpoint))
+		} else {
+			opts = append(opts, otlptracegrpc.WithEndpoint(e.Endpoint))
+		}
 	}
 	if c, err := e.compressor(); err != nil {
 		return nil, err
@@ -201,7 +209,13 @@ func (e ExporterConfig) metricOpts() ([]otlpmetricgrpc.Option, error) {
 	}
 
 	if e.Endpoint != "" {
-		opts = append(opts, otlpmetricgrpc.WithEndpoint(e.Endpoint))
+		if scheme, err := e.endpointHasScheme(); err != nil {
+			return nil, err
+		} else if scheme {
+			opts = append(opts, otlpmetricgrpc.WithEndpointURL(e.Endpoint))
+		} else {
+			opts = append(opts, otlpmetricgrpc.WithEndpoint(e.Endpoint))
+		}
 	}
 	if c, err := e.compressor(); err != nil {
 		return nil, err
@@ -273,7 +287,13 @@ func (e ExporterConfig) logOpts() ([]otlploggrpc.Option, error) {
 	}
 
 	if e.Endpoint != "" {
-		opts = append(opts, otlploggrpc.WithEndpoint(e.Endpoint))
+		if scheme, err := e.endpointHasScheme(); err != nil {
+			return nil, err
+		} else if scheme {
+			opts = append(opts, otlploggrpc.WithEndpointURL(e.Endpoint))
+		} else {
+			opts = append(opts, otlploggrpc.WithEndpoint(e.Endpoint))
+		}
 	}
 	if c, err := e.compressor(); err != nil {
 		return nil, err
@@ -327,6 +347,26 @@ func (e ExporterConfig) dialOpts() ([]grpc.DialOption, error) {
 	}
 
 	return opts, nil
+}
+
+// endpointHasScheme reports whether the endpoint carries an http/https scheme.
+// A scheme-bearing endpoint (e.g. "https://collector:4317", the ubiquitous
+// OTEL_EXPORTER_OTLP_ENDPOINT / collector form) must go through WithEndpointURL:
+// WithEndpoint expects a bare host:port and would otherwise dial the whole URL
+// string as a literal gRPC target and never connect. WithEndpointURL also makes
+// http:// imply insecure, matching collector/SDK ergonomics.
+func (e ExporterConfig) endpointHasScheme() (bool, error) {
+	if !strings.Contains(e.Endpoint, "://") {
+		return false, nil
+	}
+	u, err := url.Parse(e.Endpoint)
+	if err != nil {
+		return false, fmt.Errorf("invalid endpoint URL %q: %w", e.Endpoint, err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return false, fmt.Errorf("unsupported endpoint scheme %q (want http or https)", u.Scheme)
+	}
+	return true, nil
 }
 
 // compressor validates the configured compression and returns the gRPC

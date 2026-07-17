@@ -138,7 +138,9 @@ func (e ExporterConfig) spanOpts() ([]otlptracegrpc.Option, error) {
 	} else if c != "" {
 		opts = append(opts, otlptracegrpc.WithCompressor(c))
 	}
-	if h := e.headers(); h != nil {
+	if h, err := e.headers(); err != nil {
+		return nil, err
+	} else if h != nil {
 		opts = append(opts, otlptracegrpc.WithHeaders(h))
 	}
 	if e.Timeout > 0 {
@@ -239,7 +241,9 @@ func (e ExporterConfig) metricOpts() ([]otlpmetricgrpc.Option, error) {
 	} else if c != "" {
 		opts = append(opts, otlpmetricgrpc.WithCompressor(c))
 	}
-	if h := e.headers(); h != nil {
+	if h, err := e.headers(); err != nil {
+		return nil, err
+	} else if h != nil {
 		opts = append(opts, otlpmetricgrpc.WithHeaders(h))
 	}
 	if e.Timeout > 0 {
@@ -323,7 +327,9 @@ func (e ExporterConfig) logOpts() ([]otlploggrpc.Option, error) {
 	} else if c != "" {
 		opts = append(opts, otlploggrpc.WithCompressor(c))
 	}
-	if h := e.headers(); h != nil {
+	if h, err := e.headers(); err != nil {
+		return nil, err
+	} else if h != nil {
 		opts = append(opts, otlploggrpc.WithHeaders(h))
 	}
 	if e.Timeout > 0 {
@@ -418,16 +424,21 @@ func (e ExporterConfig) compressor() (string, error) {
 	}
 }
 
-// headers flattens the opaque name/value list for the exporter options.
-func (e ExporterConfig) headers() map[string]string {
+// headers flattens the opaque name/value list for the exporter options. A
+// duplicate name is rejected rather than silently overwritten (last-wins),
+// restoring the distinct-names invariant the MapList type documents.
+func (e ExporterConfig) headers() (map[string]string, error) {
 	if len(e.Headers) == 0 {
-		return nil
+		return nil, nil
 	}
 	m := make(map[string]string, len(e.Headers))
 	for name, value := range e.Headers.Iter {
+		if _, dup := m[name]; dup {
+			return nil, fmt.Errorf("headers: duplicate name %q", name)
+		}
 		m[name] = string(value)
 	}
-	return m
+	return m, nil
 }
 
 type retryPolicy struct {

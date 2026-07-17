@@ -11,6 +11,7 @@ import (
 	"github.com/goccy/go-yaml"
 	"github.com/lesomnus/mkot"
 	"github.com/lesomnus/mkot/internal/x"
+	"github.com/lesomnus/mkot/opaque"
 	olog "go.opentelemetry.io/otel/log"
 	collectorlogspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	collectormetricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
@@ -197,6 +198,21 @@ providers:
 	sink.mu.Lock()
 	defer sink.mu.Unlock()
 	x.Eq(true, sink.names["mkot.scheme.span"])
+}
+
+func TestDuplicateHeadersRejected(t *testing.T) {
+	_, x := x.New(t)
+	e := ExporterConfig{Headers: opaque.MapList{
+		{Name: "authorization", Value: "a"},
+		{Name: "authorization", Value: "b"},
+	}}
+	if _, err := e.spanOpts(); err == nil {
+		t.Fatal("duplicate header names must error, not silently drop one")
+	}
+	// A distinct set builds cleanly.
+	e.Headers = opaque.MapList{{Name: "authorization", Value: "a"}, {Name: "x-tenant", Value: "t"}}
+	_, err := e.spanOpts()
+	x.NoError(err)
 }
 
 // uaSink records the gRPC User-Agent of the last export it received.

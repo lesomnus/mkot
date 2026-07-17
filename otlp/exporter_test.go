@@ -103,6 +103,11 @@ func TestTemporality(t *testing.T) {
 		_, err := (ExporterConfig{Temporality: "delta"}).metricOpts()
 		x.NoError(err)
 	})
+	t.Run("lowmemory is accepted", func(t *testing.T) {
+		_, x := x.New(t)
+		_, err := (ExporterConfig{Temporality: "lowmemory"}).metricOpts()
+		x.NoError(err)
+	})
 	t.Run("unknown value is rejected", func(t *testing.T) {
 		if _, err := (ExporterConfig{Temporality: "bogus"}).metricOpts(); err == nil {
 			t.Fatal("unknown temporality must error")

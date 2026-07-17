@@ -85,7 +85,7 @@ type ExporterConfig struct {
 	Interval time.Duration `yaml:"interval,omitempty"`
 
 	// Temporality selects the metric aggregation temporality: "cumulative"
-	// (default) or "delta". Not part of the collector schema.
+	// (default), "delta", or "lowmemory". Not part of the collector schema.
 	Temporality string `yaml:"temporality,omitempty"`
 }
 
@@ -269,8 +269,13 @@ func (e ExporterConfig) metricOpts() ([]otlpmetricgrpc.Option, error) {
 		// delta, everything else (gauges, up-down counters) stays cumulative — a
 		// delta gauge would vanish from exports unless re-recorded every cycle.
 		opts = append(opts, otlpmetricgrpc.WithTemporalitySelector(metric.DeltaTemporalitySelector))
+	case "lowmemory":
+		// Delta for sync counters and histograms (which the SDK need not retain
+		// between cycles), cumulative for everything else — the spec's
+		// memory-optimized preference.
+		opts = append(opts, otlpmetricgrpc.WithTemporalitySelector(metric.LowMemoryTemporalitySelector))
 	default:
-		return nil, fmt.Errorf("unknown temporality %q (want cumulative or delta)", e.Temporality)
+		return nil, fmt.Errorf("unknown temporality %q (want cumulative, delta, or lowmemory)", e.Temporality)
 	}
 
 	return opts, nil

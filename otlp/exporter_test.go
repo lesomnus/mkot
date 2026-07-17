@@ -200,6 +200,22 @@ providers:
 	x.Eq(true, sink.names["mkot.scheme.span"])
 }
 
+func TestKeepalivePartialRejected(t *testing.T) {
+	_, x := x.New(t)
+	// timeout without time is a partial config that grpc would drop whole.
+	if _, err := (ExporterConfig{Keepalive: &KeepaliveConfig{Timeout: time.Second}}).spanOpts(); err == nil {
+		t.Fatal("keepalive timeout without time must error")
+	}
+	if _, err := (ExporterConfig{Keepalive: &KeepaliveConfig{PermitWithoutStream: true}}).spanOpts(); err == nil {
+		t.Fatal("keepalive permit_without_stream without time must error")
+	}
+	// A full keepalive block, and an empty one, both build cleanly.
+	_, err := (ExporterConfig{Keepalive: &KeepaliveConfig{Time: 30 * time.Second, Timeout: time.Second}}).spanOpts()
+	x.NoError(err)
+	_, err = (ExporterConfig{Keepalive: &KeepaliveConfig{}}).spanOpts()
+	x.NoError(err)
+}
+
 func TestDuplicateHeadersRejected(t *testing.T) {
 	_, x := x.New(t)
 	e := ExporterConfig{Headers: opaque.MapList{

@@ -362,14 +362,22 @@ func (e ExporterConfig) dialOpts() ([]grpc.DialOption, error) {
 	if e.Authority != "" {
 		opts = append(opts, grpc.WithAuthority(e.Authority))
 	}
-	if e.Keepalive != nil && e.Keepalive.Time > 0 {
-		// Only with an explicit ping interval: grpc clamps Time=0 up to its 10s
-		// minimum, which would silently ENABLE keepalive pings for an empty block.
-		opts = append(opts, grpc.WithKeepaliveParams(keepalive.ClientParameters{
-			Time:                e.Keepalive.Time,
-			Timeout:             e.Keepalive.Timeout,
-			PermitWithoutStream: e.Keepalive.PermitWithoutStream,
-		}))
+	if e.Keepalive != nil {
+		// Only wire keepalive with an explicit ping interval: grpc clamps Time=0
+		// up to its 10s minimum, which would silently ENABLE pings for an empty
+		// block. A timeout/permit_without_stream set without time is a partial
+		// config that would otherwise be dropped whole — reject it instead.
+		if e.Keepalive.Time <= 0 {
+			if e.Keepalive.Timeout != 0 || e.Keepalive.PermitWithoutStream {
+				return nil, fmt.Errorf("keepalive: time must be set when timeout or permit_without_stream is configured")
+			}
+		} else {
+			opts = append(opts, grpc.WithKeepaliveParams(keepalive.ClientParameters{
+				Time:                e.Keepalive.Time,
+				Timeout:             e.Keepalive.Timeout,
+				PermitWithoutStream: e.Keepalive.PermitWithoutStream,
+			}))
+		}
 	}
 	if e.WaitForReady {
 		opts = append(opts, grpc.WithDefaultCallOptions(grpc.WaitForReady(true)))

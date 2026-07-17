@@ -54,6 +54,39 @@ func selfSignedCert(t *testing.T) (tls.Certificate, []byte) {
 	return pair, cert_pem
 }
 
+// min/max version, cipher suites, and curve preferences must reach the built
+// *tls.Config instead of being silently dropped.
+func TestClientTlsConfigVersionsSuitesCurves(t *testing.T) {
+	_, x := x.New(t)
+
+	conf, err := mkot.ClientTlsConfig{TLSConfig: mkot.TLSConfig{
+		MinVersion:       "1.2",
+		MaxVersion:       "1.3",
+		CipherSuites:     []string{"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"},
+		CurvePreferences: []string{"X25519", "P256"},
+	}}.Build()
+	x.NoError(err)
+	x.Eq(uint16(tls.VersionTLS12), conf.MinVersion)
+	x.Eq(uint16(tls.VersionTLS13), conf.MaxVersion)
+	x.Eq(1, len(conf.CipherSuites))
+	x.Eq(tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, conf.CipherSuites[0])
+	x.Eq(2, len(conf.CurvePreferences))
+	x.Eq(tls.X25519, conf.CurvePreferences[0])
+	x.Eq(tls.CurveP256, conf.CurvePreferences[1])
+
+	// Unknown values are rejected, not silently dropped.
+	for _, c := range []mkot.ClientTlsConfig{
+		{TLSConfig: mkot.TLSConfig{MinVersion: "1.4"}},
+		{TLSConfig: mkot.TLSConfig{MaxVersion: "nope"}},
+		{TLSConfig: mkot.TLSConfig{CipherSuites: []string{"TLS_NOT_A_SUITE"}}},
+		{TLSConfig: mkot.TLSConfig{CurvePreferences: []string{"P999"}}},
+	} {
+		if _, err := c.Build(); err == nil {
+			t.Fatalf("expected an error for %+v", c.TLSConfig)
+		}
+	}
+}
+
 // A configured CA must become the CLIENT trust anchor (RootCAs): the handshake
 // against a server signed by that CA succeeds, and fails without it.
 func TestClientTlsConfigBuildCustomCA(t *testing.T) {

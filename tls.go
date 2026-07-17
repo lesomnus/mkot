@@ -148,17 +148,108 @@ func (c ClientTlsConfig) Build() (*tls.Config, error) {
 		return nil, fmt.Errorf("both cert and key must be provided together")
 	}
 
+	var min_version, max_version uint16
+	if c.MinVersion != "" {
+		var err error
+		if min_version, err = parseTLSVersion(c.MinVersion); err != nil {
+			return nil, fmt.Errorf("min_version: %w", err)
+		}
+	}
+	if c.MaxVersion != "" {
+		var err error
+		if max_version, err = parseTLSVersion(c.MaxVersion); err != nil {
+			return nil, fmt.Errorf("max_version: %w", err)
+		}
+	}
+	cipher_suites, err := parseCipherSuites(c.CipherSuites)
+	if err != nil {
+		return nil, err
+	}
+	curve_preferences, err := parseCurvePreferences(c.CurvePreferences)
+	if err != nil {
+		return nil, err
+	}
+
 	return &tls.Config{
 		Certificates: certs,
 		// This is a CLIENT config: the peer (server) certificate is verified
 		// against RootCAs. ClientCAs is a server-side field and would leave a
 		// configured CA silently unused.
 		RootCAs: pool,
-		// MinVersion:         minVersion,
-		// MaxVersion:         maxVersion,
-		// CipherSuites:       cipherSuites,
-		// CurvePreferences:   curvePreferences,
+		// MinVersion is left at 0 (crypto/tls defaults a client to TLS 1.2)
+		// unless the config pins a floor.
+		MinVersion: min_version,
+		MaxVersion: max_version,
+		// CipherSuites only governs TLS 1.2 handshakes; crypto/tls ignores it for
+		// TLS 1.3 (whose suites are not configurable in Go).
+		CipherSuites:       cipher_suites,
+		CurvePreferences:   curve_preferences,
 		InsecureSkipVerify: c.InsecureSkipVerify,
 		ServerName:         c.ServerName,
 	}, nil
+}
+
+// parseTLSVersion maps a collector-style version string ("1.0".."1.3") to the
+// crypto/tls constant.
+func parseTLSVersion(s string) (uint16, error) {
+	switch s {
+	case "1.0":
+		return tls.VersionTLS10, nil
+	case "1.1":
+		return tls.VersionTLS11, nil
+	case "1.2":
+		return tls.VersionTLS12, nil
+	case "1.3":
+		return tls.VersionTLS13, nil
+	default:
+		return 0, fmt.Errorf("unsupported version %q (want 1.0, 1.1, 1.2, or 1.3)", s)
+	}
+}
+
+// parseCipherSuites resolves crypto/tls cipher suite names (e.g.
+// "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256") to their IDs, erroring on any
+// unknown name rather than silently dropping the restriction.
+func parseCipherSuites(names []string) ([]uint16, error) {
+	if len(names) == 0 {
+		return nil, nil
+	}
+	by_name := map[string]uint16{}
+	for _, cs := range tls.CipherSuites() {
+		by_name[cs.Name] = cs.ID
+	}
+	for _, cs := range tls.InsecureCipherSuites() {
+		by_name[cs.Name] = cs.ID
+	}
+	ids := make([]uint16, 0, len(names))
+	for _, n := range names {
+		id, ok := by_name[n]
+		if !ok {
+			return nil, fmt.Errorf("unsupported cipher suite %q", n)
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+// parseCurvePreferences maps curve names to crypto/tls CurveIDs in the given
+// preference order.
+func parseCurvePreferences(names []string) ([]tls.CurveID, error) {
+	if len(names) == 0 {
+		return nil, nil
+	}
+	by_name := map[string]tls.CurveID{
+		"X25519": tls.X25519,
+		"P256":   tls.CurveP256,
+		"P384":   tls.CurveP384,
+		"P521":   tls.CurveP521,
+	}
+	ids := make([]tls.CurveID, 0, len(names))
+	for _, n := range names {
+		id, ok := by_name[n]
+		if !ok {
+			return nil, fmt.Errorf("unsupported curve %q (want X25519, P256, P384, or P521)", n)
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
 }

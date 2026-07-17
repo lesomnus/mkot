@@ -3,6 +3,7 @@ package mkot
 // See https://github.com/open-telemetry/opentelemetry-collector/blob/main/exporter/exporterhelper/README.md#sending-queue
 
 import (
+	"fmt"
 	"time"
 
 	"go.opentelemetry.io/otel/sdk/log"
@@ -44,9 +45,33 @@ func (c QueueConfig) IsEnabled() bool {
 	return c.Enabled == nil || *c.Enabled
 }
 
-func (c QueueConfig) BuildSpanProcessor(v trace.SpanExporter) trace.SpanProcessor {
+// rejectUnsupported errors on sending_queue knobs the SDK batch processors
+// cannot honor, instead of silently dropping them (matching the reject-don't-
+// drop precedent used for unsupported retry knobs). block_on_overflow maps to
+// trace.WithBlocking for spans but has no analogue in the log batch processor,
+// so it is rejected on the log path only.
+func (c QueueConfig) rejectUnsupported(isLog bool) error {
+	if c.NumConsumers != 0 {
+		return fmt.Errorf("sending_queue: num_consumers is not supported (the SDK batch processor is single-consumer)")
+	}
+	if c.WaitForResult {
+		return fmt.Errorf("sending_queue: wait_for_result is not supported (the SDK batch processor is asynchronous)")
+	}
+	if c.Batch.MinSize != 0 {
+		return fmt.Errorf("sending_queue: batch.min_size is not supported (the SDK has no minimum-batch-size)")
+	}
+	if isLog && c.BlockOnOverflow {
+		return fmt.Errorf("sending_queue: block_on_overflow is not supported for logs (the SDK log batch processor drops on overflow)")
+	}
+	return nil
+}
+
+func (c QueueConfig) BuildSpanProcessor(v trace.SpanExporter) (trace.SpanProcessor, error) {
 	if !c.IsEnabled() {
-		return trace.NewSimpleSpanProcessor(v)
+		return trace.NewSimpleSpanProcessor(v), nil
+	}
+	if err := c.rejectUnsupported(false); err != nil {
+		return nil, err
 	}
 
 	// Unset (zero) values must keep the SDK defaults: the trace batcher does
@@ -61,12 +86,19 @@ func (c QueueConfig) BuildSpanProcessor(v trace.SpanExporter) trace.SpanProcesso
 	if c.Batch.MaxSize > 0 {
 		opts = append(opts, trace.WithMaxExportBatchSize(int(c.Batch.MaxSize)))
 	}
-	return trace.NewBatchSpanProcessor(v, opts...)
+	if c.BlockOnOverflow {
+		// Block the producer instead of dropping spans when the queue is full.
+		opts = append(opts, trace.WithBlocking())
+	}
+	return trace.NewBatchSpanProcessor(v, opts...), nil
 }
 
-func (c QueueConfig) BuildLogProcessor(v log.Exporter) log.Processor {
+func (c QueueConfig) BuildLogProcessor(v log.Exporter) (log.Processor, error) {
 	if !c.IsEnabled() {
-		return log.NewSimpleProcessor(v)
+		return log.NewSimpleProcessor(v), nil
+	}
+	if err := c.rejectUnsupported(true); err != nil {
+		return nil, err
 	}
 
 	opts := []log.BatchProcessorOption{}
@@ -79,7 +111,7 @@ func (c QueueConfig) BuildLogProcessor(v log.Exporter) log.Processor {
 	if c.Batch.MaxSize > 0 {
 		opts = append(opts, log.WithExportMaxBatchSize(int(c.Batch.MaxSize)))
 	}
-	return log.NewBatchProcessor(v, opts...)
+	return log.NewBatchProcessor(v, opts...), nil
 }
 
 // BatchConfig defines a configuration for batching requests based on a timeout and a minimum number of items.

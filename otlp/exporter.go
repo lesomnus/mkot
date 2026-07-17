@@ -97,7 +97,10 @@ func (e ExporterConfig) SpanExporter(ctx context.Context) (trace.SpanExporter, [
 	// Unstarted: [mkot.Resolver.Start] is the single starter.
 	v := otlptracegrpc.NewUnstarted(opts...)
 
-	p := e.Queue.BuildSpanProcessor(v)
+	p, err := e.Queue.BuildSpanProcessor(v)
+	if err != nil {
+		return nil, nil, err
+	}
 	return mkot.SpanComponent(v, p), []trace.TracerProviderOption{trace.WithSpanProcessor(p)}, nil
 }
 
@@ -279,7 +282,10 @@ func (e ExporterConfig) LogExporter(ctx context.Context) (log.Exporter, []log.Lo
 		return nil, nil, fmt.Errorf("create gRPC log exporter: %w", err)
 	}
 
-	p := e.Queue.BuildLogProcessor(v)
+	p, err := e.Queue.BuildLogProcessor(v)
+	if err != nil {
+		return nil, nil, err
+	}
 	return mkot.LogComponent(v, p), []log.LoggerProviderOption{log.WithProcessor(p)}, nil
 }
 

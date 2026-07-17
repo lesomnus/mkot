@@ -55,7 +55,10 @@ func (e ExporterConfig) SpanExporter(ctx context.Context) (trace.SpanExporter, [
 		return nil, nil, err
 	}
 
-	p := e.queue().BuildSpanProcessor(v)
+	p, err := e.queue().BuildSpanProcessor(v)
+	if err != nil {
+		return nil, nil, err
+	}
 	return mkot.SpanComponent(v, p), []trace.TracerProviderOption{trace.WithSpanProcessor(p)}, nil
 }
 
@@ -104,7 +107,10 @@ func (e ExporterConfig) LogExporter(ctx context.Context) (log.Exporter, []log.Lo
 		return nil, nil, err
 	}
 
-	p := e.queue().BuildLogProcessor(v)
+	p, err := e.queue().BuildLogProcessor(v)
+	if err != nil {
+		return nil, nil, err
+	}
 	return mkot.LogComponent(v, p), []log.LoggerProviderOption{log.WithProcessor(p)}, nil
 }
 

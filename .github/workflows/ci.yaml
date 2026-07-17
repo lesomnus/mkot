@@ -1,0 +1,33 @@
+name: ci
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Each nested module is built in isolation. The go.work workspace masks
+        # cross-module version skew (a nested module pinning a stale root); with
+        # GOWORK=off each module resolves its own go.mod, catching that skew.
+        module: [".", "otlp", "pretty", "prometheus"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ matrix.module }}/go.mod
+      - name: build & test (${{ matrix.module }})
+        working-directory: ${{ matrix.module }}
+        env:
+          GOWORK: "off"
+        run: |
+          go build ./...
+          go test -race ./...

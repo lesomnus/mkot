@@ -72,6 +72,10 @@ type ExporterConfig struct {
 	// // Middlewares for the gRPC client.
 	// Middlewares []configmiddleware.Config `yaml:"middlewares,omitempty"`
 
+	// Timeout is the maximum duration for each export attempt. Zero uses the SDK
+	// default (10s). Maps the collector exporterhelper `timeout`.
+	Timeout time.Duration `yaml:"timeout,omitempty"`
+
 	Retry mkot.RetryConfig `yaml:"retry_on_failure,omitempty"`
 	Queue mkot.QueueConfig `yaml:"sending_queue,omitempty"`
 
@@ -133,6 +137,9 @@ func (e ExporterConfig) spanOpts() ([]otlptracegrpc.Option, error) {
 	if h := e.headers(); h != nil {
 		opts = append(opts, otlptracegrpc.WithHeaders(h))
 	}
+	if e.Timeout > 0 {
+		opts = append(opts, otlptracegrpc.WithTimeout(e.Timeout))
+	}
 	p, ok, err := e.retryPolicy()
 	if err != nil {
 		return nil, err
@@ -185,6 +192,12 @@ func (e ExporterConfig) MetricReader(ctx context.Context) (metric.Reader, []metr
 	if e.Interval > 0 {
 		ropts = append(ropts, metric.WithInterval(e.Interval))
 	}
+	if e.Timeout > 0 {
+		// Keep the reader's collect+export deadline aligned with the per-export
+		// timeout so a raised timeout is not cancelled early by the reader's
+		// 30s default.
+		ropts = append(ropts, metric.WithTimeout(e.Timeout))
+	}
 	r := metric.NewPeriodicReader(v, ropts...)
 	return r, []metric.Option{metric.WithReader(r)}, nil
 }
@@ -224,6 +237,9 @@ func (e ExporterConfig) metricOpts() ([]otlpmetricgrpc.Option, error) {
 	}
 	if h := e.headers(); h != nil {
 		opts = append(opts, otlpmetricgrpc.WithHeaders(h))
+	}
+	if e.Timeout > 0 {
+		opts = append(opts, otlpmetricgrpc.WithTimeout(e.Timeout))
 	}
 	p, ok, err := e.retryPolicy()
 	if err != nil {
@@ -302,6 +318,9 @@ func (e ExporterConfig) logOpts() ([]otlploggrpc.Option, error) {
 	}
 	if h := e.headers(); h != nil {
 		opts = append(opts, otlploggrpc.WithHeaders(h))
+	}
+	if e.Timeout > 0 {
+		opts = append(opts, otlploggrpc.WithTimeout(e.Timeout))
 	}
 	p, ok, err := e.retryPolicy()
 	if err != nil {

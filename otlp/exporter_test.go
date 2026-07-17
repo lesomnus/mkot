@@ -28,6 +28,7 @@ exporters:
       - { name: authorization, value: "Bearer x" }
     interval: 30s
     temporality: delta
+    timeout: 5s
 providers:
   meter:
     exporters: [otlp]
@@ -45,6 +46,16 @@ providers:
 	x.Eq("Bearer x", string(auth))
 	x.Eq(30*time.Second, e.Interval)
 	x.Eq("delta", e.Temporality)
+	x.Eq(5*time.Second, e.Timeout)
+
+	// A timeout must build cleanly into every signal's options.
+	for _, build := range []func() error{
+		func() error { _, err := e.spanOpts(); return err },
+		func() error { _, err := e.metricOpts(); return err },
+		func() error { _, err := e.logOpts(); return err },
+	} {
+		x.NoError(build())
+	}
 }
 
 func TestRetryPolicy(t *testing.T) {

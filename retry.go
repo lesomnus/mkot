@@ -24,6 +24,11 @@ type RetryConfig struct {
 
 	// MaxElapsedTime is the maximum amount of time (including retries) spent trying to send a request/batch.
 	// Once this value is reached, the data is discarded. If set to 0, the retries are never stopped.
+	//
+	// Note: unlike the collector (which defaults this to 5m), configuring any
+	// other retry_on_failure field while leaving this unset means 0 — an
+	// unbounded retry duration, capped in practice only by the per-export
+	// timeout. Set it explicitly to bound the total retry time.
 	MaxElapsedTime time.Duration `yaml:"max_elapsed_time"`
 }
 

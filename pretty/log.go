@@ -86,10 +86,31 @@ func (e *LogExporter) Export(ctx context.Context, records []sdklog.Record) error
 		attr_grpc := kindGrpcAttr{}
 		status_msg := ""
 
+		// Generic otx ingress/egress markers (not http/grpc specific): an ingress
+		// record carries the invoked method, an egress record the elapsed time.
+		var otxIngress, otxEgress bool
+		var otxMethod string
+		var otxElapsed int64
+
 		r.WalkAttributes(func(kv log.KeyValue) bool {
 			switch kv.Key {
 			case "app.widget.name":
 				title = kv.Value.AsString()
+
+			case "internal.otx.ingress":
+				otxIngress = true
+				for _, m := range kv.Value.AsMap() {
+					if m.Key == "method" {
+						otxMethod = m.Value.AsString()
+					}
+				}
+			case "internal.otx.egress":
+				otxEgress = true
+				for _, m := range kv.Value.AsMap() {
+					if m.Key == "elapsed" {
+						otxElapsed = m.Value.AsInt64()
+					}
+				}
 
 			case "trace_id":
 			case "span_id":
@@ -199,6 +220,18 @@ func (e *LogExporter) Export(ctx context.Context, records []sdklog.Record) error
 
 		b := bytes.NewBuffer(make([]byte, 0, 128))
 		writeHeader(b, title, r.Timestamp(), sym, r.TraceID(), r.SpanID())
+		if otxIngress || otxEgress {
+			if otxIngress {
+				b.WriteString(c_req.Sprint("›» "))
+				b.WriteString(otxMethod)
+			} else {
+				b.WriteString(c_res.Sprint("«‹ "))
+				b.WriteString(time.Duration(otxElapsed).String())
+			}
+			b.WriteByte('\n')
+			e.Out.Write(b.Bytes())
+			continue
+		}
 		switch kind {
 		case logKindHttpIngress, logKindGrpcIngress:
 			b.WriteString(c_req.Sprint("›» "))

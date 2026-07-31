@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/lesomnus/mkot"
 	"github.com/lesomnus/mkot/internal/x"
@@ -80,5 +81,61 @@ func TestBuildProcessorQueueKnobs(t *testing.T) {
 	// Logs cannot block on overflow, so that too must error.
 	if _, err := (mkot.QueueConfig{BlockOnOverflow: true}).BuildLogProcessor(nil); err == nil {
 		t.Fatal("block_on_overflow must error on the log path")
+	}
+}
+
+// blockingSpanExporter parks in ExportSpans until it is released, so the queue
+// behind it fills up.
+type blockingSpanExporter struct {
+	release chan struct{}
+}
+
+func (e *blockingSpanExporter) ExportSpans(context.Context, []trace.ReadOnlySpan) error {
+	<-e.release
+	return nil
+}
+
+func (e *blockingSpanExporter) Shutdown(context.Context) error { return nil }
+
+// block_on_overflow must actually block the producer: the default batcher drops
+// spans when the queue is full, which is the opposite of what the config asks
+// for. Asserting only that it builds cannot tell the two apart.
+func TestBlockOnOverflowBlocksProducer(t *testing.T) {
+	emit := func(t *testing.T, block bool) bool {
+		t.Helper()
+		ctx, x := x.New(t)
+		exp := &blockingSpanExporter{release: make(chan struct{})}
+		// Release the exporter no matter how the test ends, so Shutdown returns.
+		t.Cleanup(func() { close(exp.release) })
+
+		p, err := mkot.QueueConfig{
+			QueueSize:       1,
+			BlockOnOverflow: block,
+			Batch:           mkot.BatchConfig{MaxSize: 1},
+		}.BuildSpanProcessor(exp)
+		x.NoError(err)
+		tp := trace.NewTracerProvider(trace.WithSpanProcessor(p))
+
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			for range 50 {
+				_, span := tp.Tracer("t").Start(ctx, "s")
+				span.End()
+			}
+		}()
+		select {
+		case <-done:
+			return false // the producer never blocked: spans were dropped
+		case <-time.After(500 * time.Millisecond):
+			return true // still blocked on a full queue
+		}
+	}
+
+	if emit(t, false) {
+		t.Fatal("without block_on_overflow the producer must not block (spans are dropped)")
+	}
+	if !emit(t, true) {
+		t.Fatal("block_on_overflow must block the producer instead of dropping spans")
 	}
 }

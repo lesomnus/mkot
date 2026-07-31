@@ -195,6 +195,102 @@ providers:
 	}
 }
 
+// Every signal must POST to its own /v1/<signal> route. otlploghttp treats a
+// path-less URL as an explicit empty path and posted to "/" instead, which a
+// collector answers with 404 — losing every log record. A path-bearing endpoint
+// is a base URL, so the signal path is appended rather than replacing it.
+func TestHTTPEndpointPaths(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		suffix string
+		want   map[string]string
+	}{
+		{"scheme only", "", map[string]string{
+			"tracer": "/v1/traces", "meter": "/v1/metrics", "logger": "/v1/logs",
+		}},
+		{"base URL with a prefix", "/otlp", map[string]string{
+			"tracer": "/otlp/v1/traces", "meter": "/otlp/v1/metrics", "logger": "/otlp/v1/logs",
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for signal, want := range tc.want {
+				ctx, x := x.New(t)
+				paths := make(chan string, 4)
+				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					paths <- r.URL.Path
+					w.Header().Set("Content-Type", "application/x-protobuf")
+					_, _ = w.Write(nil)
+				}))
+				t.Cleanup(srv.Close)
+
+				src := `
+exporters:
+  otlp:
+    protocol: http/protobuf
+    endpoint: "` + srv.URL + tc.suffix + `"
+    interval: 100ms
+providers:
+  ` + signal + `:
+    exporters: [otlp]
+`
+				var c mkot.Config
+				x.NoError(yaml.Unmarshal([]byte(src), &c))
+				r := mkot.Make(ctx, &c)
+				emit, err := emitter(ctx, r, signal)
+				x.NoError(err)
+				x.NoError(r.Start(ctx))
+				emit()
+				x.NoError(r.Shutdown(context.Background()))
+
+				select {
+				case got := <-paths:
+					if got != want {
+						t.Fatalf("%s: exported to %q, want %q", signal, got, want)
+					}
+				case <-time.After(3 * time.Second):
+					t.Fatalf("%s: no export received", signal)
+				}
+			}
+		})
+	}
+}
+
+// emitter wires the provider for one signal and returns a func that records a
+// single item through it.
+func emitter(ctx context.Context, r mkot.Resolver, signal string) (func(), error) {
+	switch signal {
+	case "tracer":
+		tp, err := r.Tracer(ctx, "")
+		if err != nil {
+			return nil, err
+		}
+		return func() {
+			_, span := tp.Tracer("test").Start(ctx, "s")
+			span.End()
+		}, nil
+	case "meter":
+		mp, err := r.Meter(ctx, "")
+		if err != nil {
+			return nil, err
+		}
+		ctr, err := mp.Meter("test").Int64Counter("mkot.test.count")
+		if err != nil {
+			return nil, err
+		}
+		return func() { ctr.Add(ctx, 1) }, nil
+	default:
+		lp, err := r.Logger(ctx, "")
+		if err != nil {
+			return nil, err
+		}
+		return func() {
+			var rec olog.Record
+			rec.SetBody(olog.StringValue("b"))
+			lp.Logger("test").Emit(ctx, rec)
+		}, nil
+	}
+}
+
 // gRPC-only knobs must be rejected under protocol http rather than dropped.
 func TestHTTPRejectsGRPCOnlyKnobs(t *testing.T) {
 	for _, e := range []ExporterConfig{

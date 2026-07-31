@@ -83,6 +83,9 @@ exporters:
     protocol: grpc            # grpc (default) or http/protobuf
     endpoint: collector:4317  # host:port, or a URL with scheme (http:// ⇒ insecure)
                               # grpc also accepts a gRPC target: dns:///, unix:///, xds:///
+                              # under http it is a base URL: /v1/{traces,metrics,logs}
+                              # is appended, so "https://host/otlp" posts to
+                              # "https://host/otlp/v1/traces"
     compression: gzip         # gzip or none (only gzip is registered by the SDK)
     timeout: 10s              # per-export deadline
     tls:

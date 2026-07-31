@@ -3,6 +3,8 @@ package otlp
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"path"
 
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
@@ -19,6 +21,27 @@ const (
 	protocolGRPC = "grpc"
 	protocolHTTP = "http"
 )
+
+// httpEndpointURL builds the export URL for one signal from a scheme-bearing
+// endpoint. The endpoint is a base URL — the collector treats it the same way,
+// and a single endpoint is shared by all three signals here — so the signal's
+// path is appended to whatever prefix it carries: "https://host" becomes
+// "https://host/v1/logs" and "https://host/otlp" becomes
+// "https://host/otlp/v1/logs". Without this every signal would POST to the
+// endpoint's own path, collapsing the three onto one route.
+//
+// Appending explicitly also avoids relying on the SDK to fill in a default
+// path. otlptracehttp/otlpmetrichttp re-default an empty path after options are
+// applied, but otlploghttp records a path-less URL as an explicit "" and then
+// POSTs to "/", which a collector answers with 404 — losing every log record.
+func (e ExporterConfig) httpEndpointURL(signal string) (string, error) {
+	u, err := url.Parse(e.Endpoint)
+	if err != nil {
+		return "", fmt.Errorf("invalid endpoint URL %q: %w", e.Endpoint, err)
+	}
+	u.Path = path.Join(u.Path, "v1", signal)
+	return u.String(), nil
+}
 
 // protocol normalizes the configured transport; empty defaults to grpc.
 func (e ExporterConfig) protocol() (string, error) {
@@ -150,7 +173,11 @@ func (e ExporterConfig) spanHTTPOpts() ([]otlptracehttp.Option, error) {
 		if scheme, err := e.httpEndpointHasScheme(); err != nil {
 			return nil, err
 		} else if scheme {
-			opts = append(opts, otlptracehttp.WithEndpointURL(e.Endpoint))
+			u, err := e.httpEndpointURL("traces")
+			if err != nil {
+				return nil, err
+			}
+			opts = append(opts, otlptracehttp.WithEndpointURL(u))
 		} else {
 			opts = append(opts, otlptracehttp.WithEndpoint(e.Endpoint))
 		}
@@ -201,7 +228,11 @@ func (e ExporterConfig) metricHTTPOpts() ([]otlpmetrichttp.Option, error) {
 		if scheme, err := e.httpEndpointHasScheme(); err != nil {
 			return nil, err
 		} else if scheme {
-			opts = append(opts, otlpmetrichttp.WithEndpointURL(e.Endpoint))
+			u, err := e.httpEndpointURL("metrics")
+			if err != nil {
+				return nil, err
+			}
+			opts = append(opts, otlpmetrichttp.WithEndpointURL(u))
 		} else {
 			opts = append(opts, otlpmetrichttp.WithEndpoint(e.Endpoint))
 		}
@@ -261,7 +292,11 @@ func (e ExporterConfig) logHTTPOpts() ([]otlploghttp.Option, error) {
 		if scheme, err := e.httpEndpointHasScheme(); err != nil {
 			return nil, err
 		} else if scheme {
-			opts = append(opts, otlploghttp.WithEndpointURL(e.Endpoint))
+			u, err := e.httpEndpointURL("logs")
+			if err != nil {
+				return nil, err
+			}
+			opts = append(opts, otlploghttp.WithEndpointURL(u))
 		} else {
 			opts = append(opts, otlploghttp.WithEndpoint(e.Endpoint))
 		}

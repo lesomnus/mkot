@@ -130,6 +130,9 @@ func (e ExporterConfig) SpanExporter(ctx context.Context) (trace.SpanExporter, [
 func (e ExporterConfig) spanOpts() ([]otlptracegrpc.Option, error) {
 	opts := []otlptracegrpc.Option{}
 
+	if err := e.checkDurations(); err != nil {
+		return nil, err
+	}
 	if err := e.checkEndpointTLS(); err != nil {
 		return nil, err
 	}
@@ -251,6 +254,9 @@ func (e ExporterConfig) readerOpts() []metric.PeriodicReaderOption {
 func (e ExporterConfig) metricOpts() ([]otlpmetricgrpc.Option, error) {
 	opts := []otlpmetricgrpc.Option{}
 
+	if err := e.checkDurations(); err != nil {
+		return nil, err
+	}
 	if err := e.checkEndpointTLS(); err != nil {
 		return nil, err
 	}
@@ -346,6 +352,9 @@ func (e ExporterConfig) LogExporter(ctx context.Context) (log.Exporter, []log.Lo
 func (e ExporterConfig) logOpts() ([]otlploggrpc.Option, error) {
 	opts := []otlploggrpc.Option{}
 
+	if err := e.checkDurations(); err != nil {
+		return nil, err
+	}
 	if err := e.checkEndpointTLS(); err != nil {
 		return nil, err
 	}
@@ -495,6 +504,33 @@ func (e ExporterConfig) endpointHasScheme() (bool, error) {
 	return s == "http" || s == "https", nil
 }
 
+// checkDurations rejects negative durations. Every knob treats 0 as "use the
+// SDK default", so a negative value would silently take the same path as unset
+// instead of the setting the user asked for.
+func (e ExporterConfig) checkDurations() error {
+	for _, d := range []struct {
+		name string
+		v    time.Duration
+	}{
+		{"timeout", e.Timeout},
+		{"interval", e.Interval},
+		{"reconnection_period", e.ReconnectionPeriod},
+	} {
+		if d.v < 0 {
+			return fmt.Errorf("%s must not be negative, got %s", d.name, d.v)
+		}
+	}
+	if e.Keepalive != nil {
+		if e.Keepalive.Time < 0 {
+			return fmt.Errorf("keepalive: time must not be negative, got %s", e.Keepalive.Time)
+		}
+		if e.Keepalive.Timeout < 0 {
+			return fmt.Errorf("keepalive: timeout must not be negative, got %s", e.Keepalive.Timeout)
+		}
+	}
+	return nil
+}
+
 // checkEndpointTLS rejects an endpoint scheme that contradicts the tls block.
 // The SDK resolves gRPC credentials by priority, not by option order: any
 // WithTLSCredentials wins over the Insecure that WithEndpointURL derives from
@@ -610,7 +646,7 @@ func (e ExporterConfig) retryPolicy() (retryPolicy, bool, error) {
 	// The OTel SDK exporters cannot express these knobs (their backoff factors
 	// are fixed); reject rather than silently drop the tuning.
 	if c.RandomizationFactor != 0 || c.Multiplier != 0 {
-		return retryPolicy{}, false, fmt.Errorf("retry_on_failure: randomization_factor and multiplier are not supported by the OTLP gRPC exporter")
+		return retryPolicy{}, false, fmt.Errorf("retry_on_failure: randomization_factor and multiplier are not supported (the OTLP exporter's backoff factors are fixed)")
 	}
 	if c.Enabled == nil && c.InitialInterval == 0 && c.MaxInterval == 0 && c.MaxElapsedTime == 0 {
 		return retryPolicy{}, false, nil

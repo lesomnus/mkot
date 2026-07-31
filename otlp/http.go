@@ -157,6 +157,9 @@ func (e ExporterConfig) spanHTTPOpts() ([]otlptracehttp.Option, error) {
 	if err := e.rejectGRPCOnly(); err != nil {
 		return nil, err
 	}
+	if err := e.checkDurations(); err != nil {
+		return nil, err
+	}
 	opts := []otlptracehttp.Option{}
 
 	if e.TLS == nil {
@@ -210,6 +213,9 @@ func (e ExporterConfig) spanHTTPOpts() ([]otlptracehttp.Option, error) {
 
 func (e ExporterConfig) metricHTTPOpts() ([]otlpmetrichttp.Option, error) {
 	if err := e.rejectGRPCOnly(); err != nil {
+		return nil, err
+	}
+	if err := e.checkDurations(); err != nil {
 		return nil, err
 	}
 	opts := []otlpmetrichttp.Option{}
@@ -274,6 +280,9 @@ func (e ExporterConfig) metricHTTPOpts() ([]otlpmetrichttp.Option, error) {
 
 func (e ExporterConfig) logHTTPOpts() ([]otlploghttp.Option, error) {
 	if err := e.rejectGRPCOnly(); err != nil {
+		return nil, err
+	}
+	if err := e.checkDurations(); err != nil {
 		return nil, err
 	}
 	opts := []otlploghttp.Option{}

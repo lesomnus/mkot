@@ -67,15 +67,23 @@ func TestBuildProcessorQueueKnobs(t *testing.T) {
 	_, err := mkot.QueueConfig{BlockOnOverflow: true}.BuildSpanProcessor(rec)
 	x.NoError(err)
 
-	// Inexpressible span knobs must error.
+	// Inexpressible span knobs must error, whether the queue is enabled or not:
+	// disabling it does not make them expressible.
+	disabled := false
 	for _, c := range []mkot.QueueConfig{
 		{NumConsumers: 4},
 		{WaitForResult: true},
 		{Batch: mkot.BatchConfig{MinSize: 100}},
+		{Enabled: &disabled, NumConsumers: 4},
+		{Enabled: &disabled, WaitForResult: true},
+		{Enabled: &disabled, Batch: mkot.BatchConfig{MinSize: 100}},
 	} {
 		if _, err := c.BuildSpanProcessor(rec); err == nil {
 			t.Fatalf("expected an error for %+v", c)
 		}
+	}
+	if _, err := (mkot.QueueConfig{Enabled: &disabled, BlockOnOverflow: true}).BuildLogProcessor(nil); err == nil {
+		t.Fatal("block_on_overflow must error on the log path even when disabled")
 	}
 
 	// Logs cannot block on overflow, so that too must error.

@@ -293,19 +293,55 @@ func emitter(ctx context.Context, r mkot.Resolver, signal string) (func(), error
 
 // gRPC-only knobs must be rejected under protocol http rather than dropped.
 func TestHTTPRejectsGRPCOnlyKnobs(t *testing.T) {
+	// Every gRPC-only knob, on every HTTP builder.
 	for _, e := range []ExporterConfig{
 		{Protocol: "http", Authority: "x"},
 		{Protocol: "http", BalancerName: "round_robin"},
 		{Protocol: "http", ReadBufferSize: 1024},
+		{Protocol: "http", WriteBufferSize: 1024},
+		{Protocol: "http", WaitForReady: true},
+		{Protocol: "http", Keepalive: &KeepaliveConfig{Time: time.Minute}},
 		{Protocol: "http", ReconnectionPeriod: time.Second},
 	} {
-		if _, err := e.spanHTTPOpts(); err == nil {
-			t.Fatalf("expected an error for %+v", e)
+		for name, build := range map[string]func() error{
+			"span":   func() error { _, err := e.spanHTTPOpts(); return err },
+			"metric": func() error { _, err := e.metricHTTPOpts(); return err },
+			"log":    func() error { _, err := e.logHTTPOpts(); return err },
+		} {
+			if err := build(); err == nil {
+				t.Fatalf("%s: expected an error for %+v", name, e)
+			}
 		}
 	}
 	// Unknown protocol errors.
 	if _, err := (ExporterConfig{Protocol: "thrift"}).protocol(); err == nil {
 		t.Fatal("unknown protocol must error")
+	}
+}
+
+// Every duration knob treats 0 as "use the SDK default", so a negative value
+// must be rejected rather than silently taking the same path as unset.
+func TestNegativeDurationsRejected(t *testing.T) {
+	for _, e := range []ExporterConfig{
+		{Timeout: -5 * time.Second},
+		{Interval: -time.Second},
+		{ReconnectionPeriod: -3 * time.Second},
+		{Keepalive: &KeepaliveConfig{Time: -time.Second}},
+		{Keepalive: &KeepaliveConfig{Time: time.Minute, Timeout: -time.Second}},
+	} {
+		for name, build := range map[string]func() error{
+			"span":   func() error { _, err := e.spanOpts(); return err },
+			"metric": func() error { _, err := e.metricOpts(); return err },
+			"log":    func() error { _, err := e.logOpts(); return err },
+		} {
+			if err := build(); err == nil {
+				t.Fatalf("%s: expected an error for %+v", name, e)
+			}
+		}
+	}
+	// The HTTP builders share the check (keepalive is rejected there anyway).
+	if _, err := (ExporterConfig{Protocol: "http", Timeout: -time.Second}).spanHTTPOpts(); err == nil {
+		t.Fatal("http: a negative timeout must error")
 	}
 }
 

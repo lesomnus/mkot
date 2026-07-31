@@ -67,11 +67,14 @@ func (c QueueConfig) rejectUnsupported(isLog bool) error {
 }
 
 func (c QueueConfig) BuildSpanProcessor(v trace.SpanExporter) (trace.SpanProcessor, error) {
-	if !c.IsEnabled() {
-		return trace.NewSimpleSpanProcessor(v), nil
-	}
+	// Validated even when the queue is disabled: the knobs stay just as
+	// inexpressible, and short-circuiting first put them back to being
+	// silently dropped.
 	if err := c.rejectUnsupported(false); err != nil {
 		return nil, err
+	}
+	if !c.IsEnabled() {
+		return trace.NewSimpleSpanProcessor(v), nil
 	}
 
 	// Unset (zero) values must keep the SDK defaults: the trace batcher does
@@ -94,11 +97,14 @@ func (c QueueConfig) BuildSpanProcessor(v trace.SpanExporter) (trace.SpanProcess
 }
 
 func (c QueueConfig) BuildLogProcessor(v log.Exporter) (log.Processor, error) {
-	if !c.IsEnabled() {
-		return log.NewSimpleProcessor(v), nil
-	}
+	// Validated even when the queue is disabled: the knobs stay just as
+	// inexpressible, and short-circuiting first put them back to being
+	// silently dropped.
 	if err := c.rejectUnsupported(true); err != nil {
 		return nil, err
+	}
+	if !c.IsEnabled() {
+		return log.NewSimpleProcessor(v), nil
 	}
 
 	opts := []log.BatchProcessorOption{}

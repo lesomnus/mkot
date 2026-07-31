@@ -16,6 +16,8 @@ import (
 	"github.com/lesomnus/mkot/internal/x"
 	"github.com/lesomnus/mkot/opaque"
 	olog "go.opentelemetry.io/otel/log"
+	"go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	collectorlogspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	collectormetricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	collectortracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
@@ -817,4 +819,82 @@ providers:
 	sink.mu.Lock()
 	defer sink.mu.Unlock()
 	x.Eq(true, sink.bodies["mkot.test.log"])
+}
+
+// The configured push interval must reach the reader: with only the
+// shutdown-flush asserted, dropping metric.WithInterval left the suite green
+// because a 1h interval and the 60s default look identical to it.
+func TestMetricIntervalHonored(t *testing.T) {
+	ctx, x := x.New(t)
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	x.NoError(err)
+	sink := &metricSink{}
+	srv := grpc.NewServer()
+	collectormetricspb.RegisterMetricsServiceServer(srv, sink)
+	go srv.Serve(lis)
+	t.Cleanup(srv.Stop)
+
+	src := `
+exporters:
+  otlp:
+    endpoint: "` + lis.Addr().String() + `"
+    tls: { insecure: true }
+    interval: 100ms
+providers:
+  meter:
+    exporters: [otlp]
+`
+	var c mkot.Config
+	x.NoError(yaml.Unmarshal([]byte(src), &c))
+	r := mkot.Make(ctx, &c)
+	mp, err := r.Meter(ctx, "")
+	x.NoError(err)
+	x.NoError(r.Start(ctx))
+	t.Cleanup(func() { _ = r.Shutdown(context.Background()) })
+
+	ctr, err := mp.Meter("test").Int64Counter("mkot.interval.count")
+	x.NoError(err)
+	ctr.Add(ctx, 1)
+
+	// Must arrive from the periodic push alone, with no Shutdown to flush it.
+	deadline := time.After(5 * time.Second)
+	for !sink.seen("mkot.interval.count") {
+		select {
+		case <-deadline:
+			t.Fatal("no periodic push within 5s: the configured interval was not honored")
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+}
+
+// delta and lowmemory differ only on ObservableCounter, and nothing asserted
+// which selector was installed — only that building returned no error.
+func TestTemporalitySelected(t *testing.T) {
+	ctx, x := x.New(t)
+	for _, tc := range []struct {
+		temporality string
+		want        metricdata.Temporality
+	}{
+		{"", metricdata.CumulativeTemporality},
+		{"cumulative", metricdata.CumulativeTemporality},
+		{"delta", metricdata.DeltaTemporality},
+		{"lowmemory", metricdata.CumulativeTemporality},
+	} {
+		for _, protocol := range []string{"grpc", "http"} {
+			e := ExporterConfig{Protocol: protocol, Temporality: tc.temporality, Endpoint: "127.0.0.1:4317"}
+			v, err := e.newMetricExporter(ctx)
+			x.NoError(err)
+			got := v.Temporality(metric.InstrumentKindObservableCounter)
+			if got != tc.want {
+				t.Fatalf("%s temporality %q: observable counter is %v, want %v", protocol, tc.temporality, got, tc.want)
+			}
+			// Counters go delta for both delta and lowmemory.
+			if tc.temporality == "delta" || tc.temporality == "lowmemory" {
+				if c := v.Temporality(metric.InstrumentKindCounter); c != metricdata.DeltaTemporality {
+					t.Fatalf("%s temporality %q: counter is %v, want Delta", protocol, tc.temporality, c)
+				}
+			}
+			x.NoError(v.Shutdown(context.Background()))
+		}
+	}
 }

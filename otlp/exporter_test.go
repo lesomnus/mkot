@@ -218,26 +218,57 @@ func TestEndpointScheme(t *testing.T) {
 	for _, tc := range []struct {
 		ep     string
 		scheme bool
-		err    bool
 	}{
-		{"collector:4317", false, false},
-		{"https://collector:4317", true, false},
-		{"http://collector:4317", true, false},
-		{"ftp://collector:4317", false, true},
+		{"collector:4317", false},
+		{"https://collector:4317", true},
+		{"http://collector:4317", true},
+		// gRPC-native targets are resolved by grpc itself, not WithEndpointURL.
+		{"dns:///collector:4317", false},
+		{"unix:///var/run/otel.sock", false},
+		{"passthrough:///collector:4317", false},
+		{"xds:///collector", false},
 	} {
 		got, err := (ExporterConfig{Endpoint: tc.ep}).endpointHasScheme()
-		if tc.err {
-			if err == nil {
-				t.Fatalf("%q: expected an error", tc.ep)
-			}
-			continue
-		}
 		x.NoError(err)
 		x.Eq(tc.scheme, got)
 	}
 	// A scheme-bearing endpoint must build cleanly (it goes through WithEndpointURL).
 	_, err := (ExporterConfig{Endpoint: "https://collector:4317"}).spanOpts()
 	x.NoError(err)
+}
+
+// A gRPC target must keep building on the gRPC path — rejecting it made a
+// sidecar's unix socket inexpressible — while protocol: http, where such a
+// scheme is meaningless, still rejects it.
+func TestGRPCTargetEndpoints(t *testing.T) {
+	_, x := x.New(t)
+	for _, ep := range []string{
+		"dns:///collector:4317",
+		"unix:///var/run/otel.sock",
+		"passthrough:///collector:4317",
+		"xds:///collector",
+	} {
+		e := ExporterConfig{Endpoint: ep}
+		if _, err := e.spanOpts(); err != nil {
+			t.Fatalf("%q: span: %v", ep, err)
+		}
+		if _, err := e.metricOpts(); err != nil {
+			t.Fatalf("%q: metric: %v", ep, err)
+		}
+		if _, err := e.logOpts(); err != nil {
+			t.Fatalf("%q: log: %v", ep, err)
+		}
+
+		h := ExporterConfig{Protocol: "http", Endpoint: ep}
+		if _, err := h.spanHTTPOpts(); err == nil {
+			t.Fatalf("%q: protocol http must reject a gRPC target scheme", ep)
+		}
+	}
+	// A malformed URL is still an error, not a silent pass-through.
+	if _, err := (ExporterConfig{Endpoint: "http://[::1"}).spanOpts(); err == nil {
+		t.Fatal("malformed endpoint URL must error")
+	}
+	x.Eq(true, true)
 }
 
 // An http:// endpoint scheme must imply insecure and actually connect without an
@@ -318,9 +349,86 @@ func TestDuplicateHeadersRejected(t *testing.T) {
 	if _, err := e.spanOpts(); err == nil {
 		t.Fatal("duplicate header names must error, not silently drop one")
 	}
-	// A distinct set builds cleanly.
-	e.Headers = opaque.MapList{{Name: "authorization", Value: "a"}, {Name: "x-tenant", Value: "t"}}
+	// Header names are case-insensitive on both transports: net/http would keep
+	// one at random and gRPC would send both as one two-valued header.
+	e.Headers = opaque.MapList{
+		{Name: "Authorization", Value: "a"},
+		{Name: "authorization", Value: "b"},
+	}
+	for _, build := range []func() error{
+		func() error { _, err := e.spanOpts(); return err },
+		func() error { _, err := e.metricOpts(); return err },
+		func() error { _, err := e.logOpts(); return err },
+		func() error { _, err := e.spanHTTPOpts(); return err },
+	} {
+		if err := build(); err == nil {
+			t.Fatal("case-differing duplicate header names must error")
+		}
+	}
+	// A distinct set builds cleanly, and is emitted lowercased.
+	e.Headers = opaque.MapList{{Name: "Authorization", Value: "a"}, {Name: "x-tenant", Value: "t"}}
 	_, err := e.spanOpts()
+	x.NoError(err)
+	h, err := e.headers()
+	x.NoError(err)
+	x.Eq("a", h["authorization"])
+	x.Eq("t", h["x-tenant"])
+}
+
+// The SDK seeds a distinct User-Agent per signal and, unlike the trace exporter,
+// the metric/log exporters APPEND mkot's dial options to it. Injecting the trace
+// identifier there would overwrite theirs (grpc's WithUserAgent is last-wins).
+func TestUserAgentPerSignal(t *testing.T) {
+	_, x := x.New(t)
+	e := ExporterConfig{ReadBufferSize: 65536}
+
+	tos, err := e.traceDialOpts()
+	x.NoError(err)
+	x.Eq(2, len(tos)) // the re-seeded UA plus the buffer option
+
+	dos, err := e.dialOpts()
+	x.NoError(err)
+	x.Eq(1, len(dos)) // metrics/logs get the buffer option only
+
+	// With no dial knob set there is nothing to re-seed.
+	none, err := (ExporterConfig{}).traceDialOpts()
+	x.NoError(err)
+	x.Eq(0, len(none))
+}
+
+// An endpoint scheme that contradicts the tls block must not be silently
+// resolved: the SDK prioritizes credentials over the scheme's insecure hint, so
+// http:// plus a tls block kept TLS on and never reached a plaintext collector.
+func TestEndpointTLSConflict(t *testing.T) {
+	_, x := x.New(t)
+	insecure := &mkot.ClientTlsConfig{}
+	insecure.Insecure = true
+
+	for _, tc := range []struct {
+		ep  string
+		tls *mkot.ClientTlsConfig
+	}{
+		{"http://collector:4317", &mkot.ClientTlsConfig{}},
+		{"https://collector:4317", insecure},
+	} {
+		e := ExporterConfig{Endpoint: tc.ep, TLS: tc.tls}
+		for name, build := range map[string]func() error{
+			"span":   func() error { _, err := e.spanOpts(); return err },
+			"metric": func() error { _, err := e.metricOpts(); return err },
+			"log":    func() error { _, err := e.logOpts(); return err },
+		} {
+			if err := build(); err == nil {
+				t.Fatalf("%s %q with that tls block must error", name, tc.ep)
+			}
+		}
+	}
+
+	// The consistent pairings still build.
+	_, err := (ExporterConfig{Endpoint: "http://collector:4317", TLS: insecure}).spanOpts()
+	x.NoError(err)
+	_, err = (ExporterConfig{Endpoint: "https://collector:4317", TLS: &mkot.ClientTlsConfig{}}).spanOpts()
+	x.NoError(err)
+	_, err = (ExporterConfig{Endpoint: "http://collector:4317"}).spanOpts()
 	x.NoError(err)
 }
 

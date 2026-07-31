@@ -147,7 +147,7 @@ func (e ExporterConfig) spanHTTPOpts() ([]otlptracehttp.Option, error) {
 	}
 
 	if e.Endpoint != "" {
-		if scheme, err := e.endpointHasScheme(); err != nil {
+		if scheme, err := e.httpEndpointHasScheme(); err != nil {
 			return nil, err
 		} else if scheme {
 			opts = append(opts, otlptracehttp.WithEndpointURL(e.Endpoint))
@@ -198,7 +198,7 @@ func (e ExporterConfig) metricHTTPOpts() ([]otlpmetrichttp.Option, error) {
 	}
 
 	if e.Endpoint != "" {
-		if scheme, err := e.endpointHasScheme(); err != nil {
+		if scheme, err := e.httpEndpointHasScheme(); err != nil {
 			return nil, err
 		} else if scheme {
 			opts = append(opts, otlpmetrichttp.WithEndpointURL(e.Endpoint))
@@ -258,7 +258,7 @@ func (e ExporterConfig) logHTTPOpts() ([]otlploghttp.Option, error) {
 	}
 
 	if e.Endpoint != "" {
-		if scheme, err := e.endpointHasScheme(); err != nil {
+		if scheme, err := e.httpEndpointHasScheme(); err != nil {
 			return nil, err
 		} else if scheme {
 			opts = append(opts, otlploghttp.WithEndpointURL(e.Endpoint))

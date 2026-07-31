@@ -123,6 +123,9 @@ func (e ExporterConfig) SpanExporter(ctx context.Context) (trace.SpanExporter, [
 func (e ExporterConfig) spanOpts() ([]otlptracegrpc.Option, error) {
 	opts := []otlptracegrpc.Option{}
 
+	if err := e.checkEndpointTLS(); err != nil {
+		return nil, err
+	}
 	if e.TLS == nil {
 		// Default TLS config will be used.
 	} else if e.TLS.Insecure {
@@ -133,7 +136,7 @@ func (e ExporterConfig) spanOpts() ([]otlptracegrpc.Option, error) {
 		opts = append(opts, otlptracegrpc.WithTLSCredentials(credentials.NewTLS(c)))
 	}
 
-	if opts_, err := e.dialOpts(); err != nil {
+	if opts_, err := e.traceDialOpts(); err != nil {
 		return nil, fmt.Errorf("build dial options: %w", err)
 	} else if len(opts_) > 0 {
 		opts = append(opts, otlptracegrpc.WithDialOption(opts_...))
@@ -185,48 +188,65 @@ func (e ExporterConfig) spanOpts() ([]otlptracegrpc.Option, error) {
 // timestamps) instead of sampling instruments through a reader. The caller owns
 // its lifecycle and must Shutdown it.
 func (e ExporterConfig) MetricExporter(ctx context.Context) (metric.Exporter, []metric.Option, error) {
-	v, err := e.newMetricExporter(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-
+	// Validate before connecting: a rejected exemplar_filter must not leak a
+	// live exporter on every attempt.
 	mopts, err := e.meterProviderOpts()
 	if err != nil {
 		return nil, nil, err
 	}
-	return v, append([]metric.Option{metric.WithReader(metric.NewPeriodicReader(v))}, mopts...), nil
+
+	v, err := e.newMetricExporter(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	// Same reader options as [ExporterConfig.MetricReader]: the configured
+	// interval/timeout must not be dropped just because this entry point was
+	// taken.
+	r := metric.NewPeriodicReader(v, e.readerOpts()...)
+	return v, append([]metric.Option{metric.WithReader(r)}, mopts...), nil
 }
 
 // MetricReader wires a periodic OTLP push. The reader is the lifecycle
 // component: its Shutdown flushes the final collection before closing the
 // exporter.
 func (e ExporterConfig) MetricReader(ctx context.Context) (metric.Reader, []metric.Option, error) {
+	// Validate before connecting: a rejected exemplar_filter must not leak a
+	// live exporter on every attempt.
+	mopts, err := e.meterProviderOpts()
+	if err != nil {
+		return nil, nil, err
+	}
+
 	v, err := e.newMetricExporter(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	ropts := []metric.PeriodicReaderOption{}
+	r := metric.NewPeriodicReader(v, e.readerOpts()...)
+	return r, append([]metric.Option{metric.WithReader(r)}, mopts...), nil
+}
+
+// readerOpts maps the metric knobs onto the periodic reader.
+func (e ExporterConfig) readerOpts() []metric.PeriodicReaderOption {
+	opts := []metric.PeriodicReaderOption{}
 	if e.Interval > 0 {
-		ropts = append(ropts, metric.WithInterval(e.Interval))
+		opts = append(opts, metric.WithInterval(e.Interval))
 	}
 	if e.Timeout > 0 {
 		// Keep the reader's collect+export deadline aligned with the per-export
 		// timeout so a raised timeout is not cancelled early by the reader's
 		// 30s default.
-		ropts = append(ropts, metric.WithTimeout(e.Timeout))
+		opts = append(opts, metric.WithTimeout(e.Timeout))
 	}
-	mopts, err := e.meterProviderOpts()
-	if err != nil {
-		return nil, nil, err
-	}
-	r := metric.NewPeriodicReader(v, ropts...)
-	return r, append([]metric.Option{metric.WithReader(r)}, mopts...), nil
+	return opts
 }
 
 func (e ExporterConfig) metricOpts() ([]otlpmetricgrpc.Option, error) {
 	opts := []otlpmetricgrpc.Option{}
 
+	if err := e.checkEndpointTLS(); err != nil {
+		return nil, err
+	}
 	if e.TLS == nil {
 		// Default TLS config will be used.
 	} else if e.TLS.Insecure {
@@ -308,6 +328,9 @@ func (e ExporterConfig) LogExporter(ctx context.Context) (log.Exporter, []log.Lo
 
 	p, err := e.Queue.BuildLogProcessor(v)
 	if err != nil {
+		// The exporter is already live (an open gRPC ClientConn); a rejected
+		// sending_queue must not leak it on every construction attempt.
+		_ = v.Shutdown(ctx)
 		return nil, nil, err
 	}
 	return mkot.LogComponent(v, p), []log.LoggerProviderOption{log.WithProcessor(p)}, nil
@@ -316,6 +339,9 @@ func (e ExporterConfig) LogExporter(ctx context.Context) (log.Exporter, []log.Lo
 func (e ExporterConfig) logOpts() ([]otlploggrpc.Option, error) {
 	opts := []otlploggrpc.Option{}
 
+	if err := e.checkEndpointTLS(); err != nil {
+		return nil, err
+	}
 	if e.TLS == nil {
 		// Default TLS config will be used.
 	} else if e.TLS.Insecure {
@@ -408,34 +434,101 @@ func (e ExporterConfig) dialOpts() ([]grpc.DialOption, error) {
 		opts = append(opts, grpc.WithDefaultServiceConfig(fmt.Sprintf(`{"loadBalancingConfig": [{%q: {}}]}`, e.BalancerName)))
 	}
 
-	if len(opts) == 0 {
-		return opts, nil
+	return opts, nil
+}
+
+// traceDialOpts re-seeds the User-Agent the trace exporter would otherwise lose.
+// otlptracegrpc.WithDialOption REPLACES the SDK's seeded dial options (including
+// its "OTel OTLP Exporter Go/<ver>" identifier), so setting an unrelated dial
+// knob (buffers, keepalive, authority, balancer) would strip the header backends
+// key on.
+//
+// Only traces: otlpmetricgrpc and otlploggrpc APPEND to their own seed instead,
+// and grpc's WithUserAgent is last-wins, so injecting here would overwrite their
+// correct per-signal identifiers with the trace exporter's.
+func (e ExporterConfig) traceDialOpts() ([]grpc.DialOption, error) {
+	opts, err := e.dialOpts()
+	if err != nil || len(opts) == 0 {
+		return opts, err
 	}
-	// These are passed through otlp*grpc.WithDialOption, which REPLACES the SDK's
-	// seeded dial options (including its "OTel OTLP Exporter Go/<ver>" User-Agent).
-	// Re-seed the identifier so setting an unrelated dial knob (buffers, keepalive,
-	// authority, balancer) does not strip the header backends key on.
 	return append([]grpc.DialOption{grpc.WithUserAgent("OTel OTLP Exporter Go/" + otlptrace.Version())}, opts...), nil
 }
 
-// endpointHasScheme reports whether the endpoint carries an http/https scheme.
-// A scheme-bearing endpoint (e.g. "https://collector:4317", the ubiquitous
-// OTEL_EXPORTER_OTLP_ENDPOINT / collector form) must go through WithEndpointURL:
-// WithEndpoint expects a bare host:port and would otherwise dial the whole URL
-// string as a literal gRPC target and never connect. WithEndpointURL also makes
-// http:// imply insecure, matching collector/SDK ergonomics.
-func (e ExporterConfig) endpointHasScheme() (bool, error) {
+// endpointScheme returns the endpoint's URL scheme, or "" when the endpoint
+// carries none (a bare host:port, or a schemeless gRPC target such as
+// "unix-abstract:otel").
+func (e ExporterConfig) endpointScheme() (string, error) {
 	if !strings.Contains(e.Endpoint, "://") {
-		return false, nil
+		return "", nil
 	}
 	u, err := url.Parse(e.Endpoint)
 	if err != nil {
-		return false, fmt.Errorf("invalid endpoint URL %q: %w", e.Endpoint, err)
+		return "", fmt.Errorf("invalid endpoint URL %q: %w", e.Endpoint, err)
 	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return false, fmt.Errorf("unsupported endpoint scheme %q (want http or https)", u.Scheme)
+	return u.Scheme, nil
+}
+
+// endpointHasScheme reports whether the gRPC builders must use WithEndpointURL.
+// An http/https endpoint (e.g. "https://collector:4317", the ubiquitous
+// OTEL_EXPORTER_OTLP_ENDPOINT / collector form) must: WithEndpoint expects a
+// bare host:port and would otherwise dial the whole URL string as a literal
+// gRPC target and never connect. WithEndpointURL also makes http:// imply
+// insecure, matching collector/SDK ergonomics.
+//
+// Any other scheme is a gRPC target — "dns://", "unix://", "xds://",
+// "passthrough://" — that grpc's own resolver understands, so it is handed to
+// WithEndpoint untouched. Rejecting those would make a sidecar's unix socket
+// inexpressible, and the Endpoint doc comment points at the gRPC naming spec
+// that defines them.
+func (e ExporterConfig) endpointHasScheme() (bool, error) {
+	s, err := e.endpointScheme()
+	if err != nil {
+		return false, err
 	}
-	return true, nil
+	return s == "http" || s == "https", nil
+}
+
+// checkEndpointTLS rejects an endpoint scheme that contradicts the tls block.
+// The SDK resolves gRPC credentials by priority, not by option order: any
+// WithTLSCredentials wins over the Insecure that WithEndpointURL derives from
+// http://, so an http:// endpoint plus a non-insecure tls block would silently
+// keep TLS on and never reach a plaintext collector. The reverse pairing
+// (https:// with tls.insecure) is contradictory in the other direction, and the
+// scheme wins because it is applied last. protocol: http already rejects the
+// first pairing; reject both here rather than resolving them silently.
+func (e ExporterConfig) checkEndpointTLS() error {
+	if e.TLS == nil {
+		return nil
+	}
+	s, err := e.endpointScheme()
+	if err != nil {
+		return err
+	}
+	if s == "http" && !e.TLS.Insecure {
+		return fmt.Errorf("insecure http:// endpoint cannot use a tls client configuration (set tls.insecure, or use https://)")
+	}
+	if s == "https" && e.TLS.Insecure {
+		return fmt.Errorf("https:// endpoint contradicts tls.insecure (drop the scheme, or use http://)")
+	}
+	return nil
+}
+
+// httpEndpointHasScheme mirrors [ExporterConfig.endpointHasScheme] for
+// protocol: http, where a gRPC target scheme carries no meaning and must be
+// rejected rather than dialed as a hostname.
+func (e ExporterConfig) httpEndpointHasScheme() (bool, error) {
+	s, err := e.endpointScheme()
+	if err != nil {
+		return false, err
+	}
+	switch s {
+	case "":
+		return false, nil
+	case "http", "https":
+		return true, nil
+	default:
+		return false, fmt.Errorf("unsupported endpoint scheme %q for protocol http (want http or https)", s)
+	}
 }
 
 // meterProviderOpts returns MeterProvider-level options not tied to the reader
@@ -475,16 +568,23 @@ func (e ExporterConfig) compressor() (string, error) {
 // headers flattens the opaque name/value list for the exporter options. A
 // duplicate name is rejected rather than silently overwritten (last-wins),
 // restoring the distinct-names invariant the MapList type documents.
+//
+// Names are compared and stored lowercased because header names are
+// case-insensitive on both transports: net/http canonicalizes them (so one of
+// "Authorization"/"authorization" would win at random through map iteration),
+// while gRPC metadata lowercases and appends (so both would ride as one
+// two-valued header). Neither is what a duplicate name means.
 func (e ExporterConfig) headers() (map[string]string, error) {
 	if len(e.Headers) == 0 {
 		return nil, nil
 	}
 	m := make(map[string]string, len(e.Headers))
 	for name, value := range e.Headers.Iter {
-		if _, dup := m[name]; dup {
+		k := strings.ToLower(name)
+		if _, dup := m[k]; dup {
 			return nil, fmt.Errorf("headers: duplicate name %q", name)
 		}
-		m[name] = string(value)
+		m[k] = string(value)
 	}
 	return m, nil
 }

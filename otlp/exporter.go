@@ -195,8 +195,11 @@ func (e ExporterConfig) spanOpts() ([]otlptracegrpc.Option, error) {
 
 // MetricExporter returns the raw OTLP metric exporter for callers that push
 // pre-built metricdata directly (e.g. replaying recorded data with historical
-// timestamps) instead of sampling instruments through a reader. The caller owns
-// its lifecycle and must Shutdown it.
+// timestamps). The returned options still install a periodic reader, configured
+// like [ExporterConfig.MetricReader]'s, so a MeterProvider built from them
+// behaves the same; a caller that uses the exporter alone must discard the
+// options AND shut the exporter down, and [mkot.Resolver] prefers MetricReader
+// precisely because only a reader can flush on Shutdown.
 func (e ExporterConfig) MetricExporter(ctx context.Context) (metric.Exporter, []metric.Option, error) {
 	// Validate before connecting: a rejected exemplar_filter must not leak a
 	// live exporter on every attempt.

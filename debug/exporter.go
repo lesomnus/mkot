@@ -68,7 +68,9 @@ func (e ExporterConfig) SpanExporter(ctx context.Context) (trace.SpanExporter, [
 
 // MetricExporter returns the raw stdout metric exporter for callers that push
 // pre-built metricdata directly (e.g. replaying recorded data with historical
-// timestamps) instead of sampling instruments through a reader.
+// timestamps). The returned options still install a periodic reader; a caller
+// that uses the exporter alone must discard them, or the reader goes on
+// collecting with nothing registered to it.
 func (e ExporterConfig) MetricExporter(ctx context.Context) (metric.Exporter, []metric.Option, error) {
 	w, err := e.open()
 	if err != nil {

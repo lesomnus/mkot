@@ -210,6 +210,9 @@ func (r *resolver) Meter(ctx context.Context, name string, opts ...metric.Option
 	}
 
 	components := map[Id]any{}
+	// Exporters that only offer the bare-exporter path; their lifecycle component
+	// is swapped for the provider once it exists.
+	bare := []Id{}
 	for _, id := range c.Processors {
 		if err := func() error {
 			c, ok := r.config.Processors[id]
@@ -258,6 +261,7 @@ func (r *resolver) Meter(ctx context.Context, name string, opts ...metric.Option
 
 			if v, opts_, err := c.MetricExporter(ctx); err == nil {
 				components[id] = v
+				bare = append(bare, id)
 				opts = append(opts, opts_...)
 				return nil
 			} else if !errors.Is(err, ErrUnimplemented) {
@@ -272,12 +276,25 @@ func (r *resolver) Meter(ctx context.Context, name string, opts ...metric.Option
 	}
 
 	v := metric.NewMeterProvider(opts...)
+	for _, id := range bare {
+		// The bare exporter holds no reader to collect from, so shutting it down
+		// would drop the last window and leave its reader exporting into a closed
+		// exporter. The provider is the only handle that drives a final Collect,
+		// and it closes the reader and exporter beneath it.
+		components[id] = shutdownFunc(v.Shutdown)
+	}
 	r.providers[id] = &provider{
 		value:      v,
 		components: components,
 	}
 	return v, nil
 }
+
+// shutdownFunc adapts a plain shutdown function to the component interface the
+// resolver drains.
+type shutdownFunc func(ctx context.Context) error
+
+func (f shutdownFunc) Shutdown(ctx context.Context) error { return f(ctx) }
 
 func (r *resolver) Logger(ctx context.Context, name string, opts ...log.LoggerProviderOption) (olog.LoggerProvider, error) {
 	noop := nooplogger.NewLoggerProvider()

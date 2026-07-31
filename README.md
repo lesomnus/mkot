@@ -92,7 +92,10 @@ exporters:
     tls:
       insecure: false
       ca_file: /etc/otel/ca.pem
-      min_version: "1.3"      # min/max_version, cipher_suites, curve_preferences honored
+      min_version: "1.3"      # min/max_version and curve_preferences honored;
+                              # cipher_suites applies to TLS 1.2 only (Go does not
+                              # allow TLS 1.3 suite selection), and known-insecure
+                              # suites are rejected
       cert_file: /etc/otel/client.pem  # mTLS; required by reload_interval
       key_file: /etc/otel/client.key
       reload_interval: 1h     # re-reads cert_file/key_file for mTLS rotation

@@ -1,6 +1,7 @@
 package mkot_test
 
 import (
+	"math"
 	"testing"
 
 	"github.com/goccy/go-yaml"
@@ -72,11 +73,14 @@ func TestSamplerRejectsBadRatio(t *testing.T) {
 	ctx, _ := x.New(t)
 
 	for _, c := range []*mkot.Sampler{
-		{Type: "trace_id_ratio"},                     // ratio required
-		{Type: "trace_id_ratio", Ratio: ratio(1.5)},  // out of range
-		{Type: "trace_id_ratio", Ratio: ratio(-0.1)}, // out of range
-		{Type: "always_on", Ratio: ratio(0.1)},       // ratio does not apply
-		{Ratio: ratio(0.1)},                          // ditto, default type
+		{Type: "trace_id_ratio"},                            // ratio required
+		{Type: "trace_id_ratio", Ratio: ratio(1.5)},         // out of range
+		{Type: "trace_id_ratio", Ratio: ratio(-0.1)},        // out of range
+		{Type: "trace_id_ratio", Ratio: ratio(math.NaN())},  // NaN samples everything
+		{Type: "parent_based", Ratio: ratio(math.NaN())},    // ditto at the root
+		{Type: "trace_id_ratio", Ratio: ratio(math.Inf(1))}, // +Inf
+		{Type: "always_on", Ratio: ratio(0.1)},              // ratio does not apply
+		{Ratio: ratio(0.1)},                                 // ditto, default type
 	} {
 		if _, err := c.TracerOpts(ctx); err == nil {
 			t.Fatalf("%+v must error", c)

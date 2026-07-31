@@ -65,9 +65,12 @@ func (c *Sampler) validate() error {
 	if c.Ratio == nil {
 		return nil
 	}
-	// The SDK clamps out-of-range fractions silently; reject instead.
-	if *c.Ratio < 0 || *c.Ratio > 1 {
-		return fmt.Errorf("sampler: ratio %v is out of range [0,1]", *c.Ratio)
+	// The SDK clamps out-of-range fractions silently; reject instead. Written as
+	// a positive test so NaN — which compares false against every bound, and
+	// which TraceIDRatioBased would turn into "sample everything" — is rejected
+	// too.
+	if !(*c.Ratio >= 0 && *c.Ratio <= 1) {
+		return fmt.Errorf("sampler: ratio %v is not a number in [0,1]", *c.Ratio)
 	}
 	// always_on/always_off ignore the ratio: a config that reads like it samples
 	// a fraction but always samples must not pass silently.

@@ -210,6 +210,11 @@ func (c ClientTlsConfig) Build() (*tls.Config, error) {
 			return nil, fmt.Errorf("max_version: %w", err)
 		}
 	}
+	if min_version != 0 && max_version != 0 && max_version < min_version {
+		// crypto/tls accepts the pair and then fails every handshake with
+		// "no supported versions satisfy MinVersion and MaxVersion".
+		return nil, fmt.Errorf("max_version %q is below min_version %q", c.MaxVersion, c.MinVersion)
+	}
 	cipher_suites, err := parseCipherSuites(c.CipherSuites)
 	if err != nil {
 		return nil, err
@@ -259,6 +264,11 @@ func parseTLSVersion(s string) (uint16, error) {
 // parseCipherSuites resolves crypto/tls cipher suite names (e.g.
 // "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256") to their IDs, erroring on any
 // unknown name rather than silently dropping the restriction.
+//
+// Suites crypto/tls reports as insecure (RC4, 3DES, CBC-SHA) are named
+// separately so an allow-list that would downgrade the connection fails loudly
+// instead of being negotiated: cipher_suites exists to harden a client, and
+// accepting a list made only of broken suites inverts that.
 func parseCipherSuites(names []string) ([]uint16, error) {
 	if len(names) == 0 {
 		return nil, nil
@@ -267,13 +277,17 @@ func parseCipherSuites(names []string) ([]uint16, error) {
 	for _, cs := range tls.CipherSuites() {
 		by_name[cs.Name] = cs.ID
 	}
+	insecure := map[string]struct{}{}
 	for _, cs := range tls.InsecureCipherSuites() {
-		by_name[cs.Name] = cs.ID
+		insecure[cs.Name] = struct{}{}
 	}
 	ids := make([]uint16, 0, len(names))
 	for _, n := range names {
 		id, ok := by_name[n]
 		if !ok {
+			if _, bad := insecure[n]; bad {
+				return nil, fmt.Errorf("cipher suite %q is known-insecure and not permitted", n)
+			}
 			return nil, fmt.Errorf("unsupported cipher suite %q", n)
 		}
 		ids = append(ids, id)

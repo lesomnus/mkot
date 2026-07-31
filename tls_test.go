@@ -89,6 +89,53 @@ func TestClientTlsConfigReload(t *testing.T) {
 	c2, err := conf.GetClientCertificate(&tls.CertificateRequestInfo{})
 	x.NoError(err)
 	x.Eq("second", leaf_cn(c2))
+
+	// The interval must also throttle: with a long one the rotated cert is not
+	// picked up yet. Without this, deleting the throttle guard is invisible.
+	write("third")
+	held, err := mkot.ClientTlsConfig{TLSConfig: mkot.TLSConfig{
+		CertFile: cert_path, KeyFile: key_path, ReloadInterval: time.Hour,
+	}}.Build()
+	x.NoError(err)
+	c3, err := held.GetClientCertificate(&tls.CertificateRequestInfo{})
+	x.NoError(err)
+	x.Eq("third", leaf_cn(c3))
+
+	write("fourth")
+	c4, err := held.GetClientCertificate(&tls.CertificateRequestInfo{})
+	x.NoError(err)
+	x.Eq("third", leaf_cn(c4)) // still cached: the hour has not elapsed
+}
+
+func TestTLSVersionAndCipherValidation(t *testing.T) {
+	_, x := x.New(t)
+
+	// An inverted pair is accepted by crypto/tls and then fails every
+	// handshake with "no supported versions satisfy MinVersion and MaxVersion".
+	_, err := mkot.ClientTlsConfig{TLSConfig: mkot.TLSConfig{
+		MinVersion: "1.3", MaxVersion: "1.2",
+	}}.Build()
+	if err == nil {
+		t.Fatal("max_version below min_version must error")
+	}
+
+	// A known-insecure suite must be named as such, not silently negotiated.
+	_, err = mkot.ClientTlsConfig{TLSConfig: mkot.TLSConfig{
+		CipherSuites: []string{"TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA"},
+	}}.Build()
+	if err == nil {
+		t.Fatal("a known-insecure cipher suite must be rejected")
+	}
+
+	// The consistent forms still build.
+	conf, err := mkot.ClientTlsConfig{TLSConfig: mkot.TLSConfig{
+		MinVersion:   "1.2",
+		MaxVersion:   "1.3",
+		CipherSuites: []string{"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"},
+	}}.Build()
+	x.NoError(err)
+	x.Eq(uint16(tls.VersionTLS12), conf.MinVersion)
+	x.Eq(uint16(tls.VersionTLS13), conf.MaxVersion)
 }
 
 // selfSignedCert issues a CA-capable self-signed cert for 127.0.0.1, returned

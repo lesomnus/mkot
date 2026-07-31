@@ -52,11 +52,15 @@ func (e ExporterConfig) SpanExporter(ctx context.Context) (trace.SpanExporter, [
 
 	v, err := stdouttrace.New(stdouttrace.WithWriter(w))
 	if err != nil {
+		_ = w.Close()
 		return nil, nil, err
 	}
 
 	p, err := e.queue().BuildSpanProcessor(v)
 	if err != nil {
+		// The output is already open; a rejected sending_queue must not leak
+		// the file handle on every construction attempt.
+		_ = w.Close()
 		return nil, nil, err
 	}
 	return mkot.SpanComponent(v, p), []trace.TracerProviderOption{trace.WithSpanProcessor(p)}, nil
@@ -73,6 +77,7 @@ func (e ExporterConfig) MetricExporter(ctx context.Context) (metric.Exporter, []
 
 	v, err := stdoutmetric.New(stdoutmetric.WithWriter(w))
 	if err != nil {
+		_ = w.Close()
 		return nil, nil, err
 	}
 
@@ -87,6 +92,7 @@ func (e ExporterConfig) MetricReader(ctx context.Context) (metric.Reader, []metr
 
 	v, err := stdoutmetric.New(stdoutmetric.WithWriter(w))
 	if err != nil {
+		_ = w.Close()
 		return nil, nil, err
 	}
 
@@ -104,11 +110,15 @@ func (e ExporterConfig) LogExporter(ctx context.Context) (log.Exporter, []log.Lo
 
 	v, err := stdoutlog.New(stdoutlog.WithWriter(w))
 	if err != nil {
+		_ = w.Close()
 		return nil, nil, err
 	}
 
 	p, err := e.queue().BuildLogProcessor(v)
 	if err != nil {
+		// The output is already open; a rejected sending_queue must not leak
+		// the file handle on every construction attempt.
+		_ = w.Close()
 		return nil, nil, err
 	}
 	return mkot.LogComponent(v, p), []log.LoggerProviderOption{log.WithProcessor(p)}, nil

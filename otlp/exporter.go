@@ -87,6 +87,13 @@ type ExporterConfig struct {
 
 	// Timeout is the maximum duration for each export attempt. Zero uses the SDK
 	// default (10s). Maps the collector exporterhelper `timeout`.
+	//
+	// Only the metric path can exceed 30s: its reader deadline is aligned with
+	// this value, but the trace and log batch processors wrap every export in
+	// their own 30s deadline, so a larger timeout is capped there (a
+	// sending_queue disabled into a simple processor is not). Raising that
+	// ceiling needs an export-timeout option on
+	// [mkot.QueueConfig.BuildSpanProcessor]/BuildLogProcessor.
 	Timeout time.Duration `yaml:"timeout,omitempty"`
 
 	Retry mkot.RetryConfig `yaml:"retry_on_failure,omitempty"`

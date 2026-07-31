@@ -87,7 +87,8 @@ exporters:
                               # is appended, so "https://host/otlp" posts to
                               # "https://host/otlp/v1/traces"
     compression: gzip         # gzip or none (only gzip is registered by the SDK)
-    timeout: 10s              # per-export deadline
+    timeout: 10s              # per-export deadline; above 30s applies to metrics
+                              # only (the trace/log batchers cap exports at 30s)
     tls:
       insecure: false
       ca_file: /etc/otel/ca.pem

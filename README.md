@@ -9,8 +9,9 @@ From:
 ```yaml
 enabled: true
 processors:
-  batcher/foo:
-    max_queue_size: 42
+  sampler:
+    type: trace_id_ratio
+    ratio: 0.1
 
   resource:
     attributes:
@@ -27,7 +28,7 @@ exporters:
 
 providers:
   tracer:
-    processors: [batcher/foo, resource]
+    processors: [sampler, resource]
     exporters: [otlp]
 ```
 
@@ -38,9 +39,9 @@ package main
 import (
 	"context"
 
+	"github.com/goccy/go-yaml"
 	"github.com/lesomnus/mkot"
 	_ "github.com/lesomnus/mkot/otlp"
-	"gopkg.in/yaml.v3"
 )
 
 func main() {
@@ -51,7 +52,7 @@ func main() {
 	}
 
 	ctx := context.TODO()
-	resolver := mkot.Make(conf)
+	resolver := mkot.Make(ctx, conf)
 	defer resolver.Shutdown(ctx)
 
 	tracer_provider, err := resolver.Tracer(ctx, "")
@@ -63,6 +64,9 @@ func main() {
 	if err := resolver.Start(ctx); err != nil {
 		panic(err)
 	}
+
+	_, span := tracer_provider.Tracer("dunder-mifflin").Start(ctx, "work")
+	defer span.End()
 
 	// ...
 }
@@ -78,13 +82,16 @@ exporters:
   otlp:
     protocol: grpc            # grpc (default) or http/protobuf
     endpoint: collector:4317  # host:port, or a URL with scheme (http:// ⇒ insecure)
+                              # grpc also accepts a gRPC target: dns:///, unix:///, xds:///
     compression: gzip         # gzip or none (only gzip is registered by the SDK)
     timeout: 10s              # per-export deadline
     tls:
       insecure: false
       ca_file: /etc/otel/ca.pem
       min_version: "1.3"      # min/max_version, cipher_suites, curve_preferences honored
-      reload_interval: 1h     # reloads cert_file/key_file for mTLS rotation
+      cert_file: /etc/otel/client.pem  # mTLS; required by reload_interval
+      key_file: /etc/otel/client.key
+      reload_interval: 1h     # re-reads cert_file/key_file for mTLS rotation
     headers:
       - { name: authorization, value: "Bearer ..." }
     retry_on_failure:
@@ -93,7 +100,7 @@ exporters:
       max_elapsed_time: 1m    # 0 ⇒ never stop (differs from the collector's 5m default)
     sending_queue:            # applies to traces and logs (SDK batch processor)
       queue_size: 2048        # counted in spans/records, not bytes
-      block_on_overflow: true # spans block instead of dropping
+      block_on_overflow: true # traces only; rejected on the log path
       batch:
         flush_timeout: 1s
         max_size: 512
@@ -108,7 +115,8 @@ Head sampling is a separate `sampler` processor:
 processors:
   sampler:
     type: trace_id_ratio      # always_on | always_off | trace_id_ratio | parent_based
-    ratio: 0.1
+    ratio: 0.1                # required by trace_id_ratio; optional for parent_based,
+                              # which otherwise keeps every trace it roots
 ```
 
 ### Not supported
@@ -119,7 +127,14 @@ are not implemented:
 
 - **`sending_queue`**: `num_consumers`, `wait_for_result`, `batch.min_size`, and
   a persistent `storage` queue — the SDK batch processors cannot express them.
-  `sending_queue` governs traces/logs only; metric cadence is the `interval`.
+  `block_on_overflow` is honored for traces only and rejected for logs, whose
+  SDK batch processor always drops on overflow. `sending_queue` governs
+  traces/logs only; metric cadence is the `interval`.
+- **`retry_on_failure`**: `randomization_factor` and `multiplier` — the SDK's
+  backoff factors are fixed.
+- **`protocol: http/protobuf`**: the gRPC-only knobs (`keepalive`,
+  `read_buffer_size`, `write_buffer_size`, `wait_for_ready`, `balancer_name`,
+  `authority`, `reconnection_period`) are rejected rather than ignored.
 - **Auth**: only static `headers` (e.g. a fixed bearer token). OAuth2 or
   refreshing-token auth extensions are not available — build the provider by hand
   for those.

@@ -86,7 +86,8 @@ exporters:
                               # under http it is a base URL: /v1/{traces,metrics,logs}
                               # is appended, so "https://host/otlp" posts to
                               # "https://host/otlp/v1/traces"
-    compression: gzip         # gzip or none (only gzip is registered by the SDK)
+    compression: gzip         # gzip or none (only gzip is registered by the SDK);
+                              # to guarantee none, leave OTEL_EXPORTER_OTLP_COMPRESSION unset
     timeout: 10s              # per-export deadline; above 30s applies to metrics
                               # only (the trace/log batchers cap exports at 30s)
     tls:
@@ -128,15 +129,16 @@ processors:
 
 ### Not supported
 
-Config the SDK cannot express is rejected with an error rather than silently
-dropped. These collector features have no OpenTelemetry Go SDK equivalent and
-are not implemented:
+Config the SDK cannot express is rejected with an error on the signals it
+applies to, rather than silently dropped. These collector features have no
+OpenTelemetry Go SDK equivalent and are not implemented:
 
-- **`sending_queue`**: `num_consumers`, `wait_for_result`, `batch.min_size`, and
-  a persistent `storage` queue — the SDK batch processors cannot express them.
-  `block_on_overflow` is honored for traces only and rejected for logs, whose
-  SDK batch processor always drops on overflow. `sending_queue` governs
-  traces/logs only; metric cadence is the `interval`.
+- **`sending_queue`**: `num_consumers` above 1, `wait_for_result`,
+  `batch.min_size`, and a persistent `storage` queue — the SDK batch processors
+  cannot express them. `block_on_overflow` is honored for traces only and
+  rejected for logs, whose SDK batch processor always drops on overflow.
+  `sending_queue` governs traces/logs only; on a metric-only exporter it is
+  ignored (not validated) — metric cadence is the `interval`.
 - **`retry_on_failure`**: `randomization_factor` and `multiplier` — the SDK's
   backoff factors are fixed.
 - **`protocol: http/protobuf`**: the gRPC-only knobs (`keepalive`,

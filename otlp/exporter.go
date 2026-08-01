@@ -195,11 +195,12 @@ func (e ExporterConfig) spanOpts() ([]otlptracegrpc.Option, error) {
 
 // MetricExporter returns the raw OTLP metric exporter for callers that push
 // pre-built metricdata directly (e.g. replaying recorded data with historical
-// timestamps). The returned options still install a periodic reader, configured
-// like [ExporterConfig.MetricReader]'s, so a MeterProvider built from them
-// behaves the same; a caller that uses the exporter alone must discard the
-// options AND shut the exporter down, and [mkot.Resolver] prefers MetricReader
-// precisely because only a reader can flush on Shutdown.
+// timestamps) by calling its Export. The caller owns its lifecycle and must
+// Shutdown it. No reader is installed: the returned options carry only
+// MeterProvider-level settings (the exemplar filter), so [mkot.Resolver] wraps
+// the exporter in its own periodic reader, and a caller that wants a ready-made
+// reader should use [ExporterConfig.MetricReader] instead. Building a
+// MeterProvider from these options alone would export nothing, by design.
 func (e ExporterConfig) MetricExporter(ctx context.Context) (metric.Exporter, []metric.Option, error) {
 	// Validate before connecting: a rejected exemplar_filter must not leak a
 	// live exporter on every attempt.
@@ -212,11 +213,7 @@ func (e ExporterConfig) MetricExporter(ctx context.Context) (metric.Exporter, []
 	if err != nil {
 		return nil, nil, err
 	}
-	// Same reader options as [ExporterConfig.MetricReader]: the configured
-	// interval/timeout must not be dropped just because this entry point was
-	// taken.
-	r := metric.NewPeriodicReader(v, e.readerOpts()...)
-	return v, append([]metric.Option{metric.WithReader(r)}, mopts...), nil
+	return v, mopts, nil
 }
 
 // MetricReader wires a periodic OTLP push. The reader is the lifecycle

@@ -68,9 +68,9 @@ func (e ExporterConfig) SpanExporter(ctx context.Context) (trace.SpanExporter, [
 
 // MetricExporter returns the raw stdout metric exporter for callers that push
 // pre-built metricdata directly (e.g. replaying recorded data with historical
-// timestamps). The returned options still install a periodic reader; a caller
-// that uses the exporter alone must discard them, or the reader goes on
-// collecting with nothing registered to it.
+// timestamps) by calling its Export. No reader is installed; [mkot.Resolver]
+// wraps it in one, and a caller that wants a ready-made reader should use
+// [ExporterConfig.MetricReader].
 func (e ExporterConfig) MetricExporter(ctx context.Context) (metric.Exporter, []metric.Option, error) {
 	w, err := e.open()
 	if err != nil {
@@ -83,7 +83,7 @@ func (e ExporterConfig) MetricExporter(ctx context.Context) (metric.Exporter, []
 		return nil, nil, err
 	}
 
-	return v, []metric.Option{metric.WithReader(metric.NewPeriodicReader(v))}, nil
+	return v, nil, nil
 }
 
 func (e ExporterConfig) MetricReader(ctx context.Context) (metric.Reader, []metric.Option, error) {

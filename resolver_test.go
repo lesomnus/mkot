@@ -58,7 +58,8 @@ type bareExporterConfig struct {
 }
 
 func (c *bareExporterConfig) MetricExporter(ctx context.Context) (metric.Exporter, []metric.Option, error) {
-	return c.v, []metric.Option{metric.WithReader(metric.NewPeriodicReader(c.v))}, nil
+	// New contract: return the raw exporter; the resolver installs the reader.
+	return c.v, nil, nil
 }
 
 // The bare-exporter path holds no reader to collect from, so registering the

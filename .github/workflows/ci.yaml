@@ -18,7 +18,7 @@ jobs:
         # Each nested module is built in isolation. The go.work workspace masks
         # cross-module version skew (a nested module pinning a stale root); with
         # GOWORK=off each module resolves its own go.mod, catching that skew.
-        module: [".", "otlp", "pretty", "prometheus"]
+        module: [".", "mkotx", "otlp", "pretty", "prometheus"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

@@ -29,11 +29,20 @@ func (a X) Eq(expected, actual any) {
 
 func (a X) NotNil(v any) {
 	a.t.Helper()
-	if !reflect.ValueOf(v).IsNil() {
+	if v == nil {
+		a.t.Fatalf("assert.NotNil failed: got=%s", formatValue(v))
 		return
 	}
 
-	a.t.Fatalf("assert.NotNil failed: got=%s", formatValue(v))
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice, reflect.UnsafePointer:
+		// Only these can be nil. IsNil panics on anything else, so a struct
+		// value - which a no-op OpenTelemetry provider is - must not reach it.
+		if rv.IsNil() {
+			a.t.Fatalf("assert.NotNil failed: got=%s", formatValue(v))
+		}
+	}
 }
 
 func (a X) TypeAs(v, target any) {

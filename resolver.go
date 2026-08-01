@@ -296,7 +296,7 @@ func (r *resolver) Logger(ctx context.Context, name string, opts ...log.LoggerPr
 
 	c, ok := r.config.Providers[id]
 	if !ok {
-		return nil, ErrNotExist
+		return noop, ErrNotExist
 	}
 
 	components := map[Id]any{}

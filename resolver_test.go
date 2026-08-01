@@ -8,8 +8,11 @@ import (
 	"github.com/goccy/go-yaml"
 	"github.com/lesomnus/mkot"
 	"github.com/lesomnus/mkot/internal/x"
+	nooplog "go.opentelemetry.io/otel/log/noop"
+	noopmetric "go.opentelemetry.io/otel/metric/noop"
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	nooptrace "go.opentelemetry.io/otel/trace/noop"
 )
 
 // recordingMetricExporter records the metric names handed to it.
@@ -92,4 +95,36 @@ providers:
 
 	x.NoError(r.Shutdown(context.Background()))
 	x.Contains(v.exported(), "mkot.bare.count")
+}
+
+// Every resolve returns a usable provider alongside its error, so a caller that
+// tolerates ErrNotExist - the ordinary case of "this signal is not configured"
+// - can use what it was handed without a nil check of its own. Logger used to
+// be the one that returned nil.
+func TestResolveNotExistYieldsNoopProvider(t *testing.T) {
+	ctx, x := x.New(t)
+
+	r := mkot.Make(ctx, nil)
+
+	tracer_provider, err := r.Tracer(ctx, "")
+	x.ErrorIs(err, mkot.ErrNotExist)
+	x.NotNil(tracer_provider)
+	x.Eq(nooptrace.NewTracerProvider(), tracer_provider)
+
+	meter_provider, err := r.Meter(ctx, "")
+	x.ErrorIs(err, mkot.ErrNotExist)
+	x.NotNil(meter_provider)
+	x.Eq(noopmetric.NewMeterProvider(), meter_provider)
+
+	logger_provider, err := r.Logger(ctx, "")
+	x.ErrorIs(err, mkot.ErrNotExist)
+	x.NotNil(logger_provider)
+	x.Eq(nooplog.NewLoggerProvider(), logger_provider)
+
+	// Usable without a nil check: the point of handing one back.
+	_, span := tracer_provider.Tracer("test").Start(ctx, "span")
+	span.End()
+	_, err = meter_provider.Meter("test").Int64Counter("count")
+	x.NoError(err)
+	logger_provider.Logger("test")
 }

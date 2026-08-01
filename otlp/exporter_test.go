@@ -458,6 +458,51 @@ func TestExemplarFilterAndReconnection(t *testing.T) {
 	x.NoError(err)
 }
 
+// The exemplar_filter must actually reach the MeterProvider: asserting only
+// that the option builds cannot tell always_on from always_off. always_on
+// records an exemplar for a measurement with no span; always_off records none.
+func TestExemplarFilterApplied(t *testing.T) {
+	ctx, x := x.New(t)
+	for _, tc := range []struct {
+		filter string
+		want   bool
+	}{
+		{"always_on", true},
+		{"always_off", false},
+		{"trace_based", false}, // no sampled span in ctx
+	} {
+		opts, err := (ExporterConfig{ExemplarFilter: tc.filter}).meterProviderOpts()
+		x.NoError(err)
+		rdr := metric.NewManualReader()
+		mp := metric.NewMeterProvider(append(opts, metric.WithReader(rdr))...)
+		ctr, err := mp.Meter("t").Int64Counter("c")
+		x.NoError(err)
+		ctr.Add(ctx, 5)
+
+		var rm metricdata.ResourceMetrics
+		x.NoError(rdr.Collect(ctx, &rm))
+		if got := hasExemplar(rm); got != tc.want {
+			t.Fatalf("exemplar_filter %q: exemplar present=%v, want %v", tc.filter, got, tc.want)
+		}
+		x.NoError(mp.Shutdown(ctx))
+	}
+}
+
+func hasExemplar(rm metricdata.ResourceMetrics) bool {
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if s, ok := m.Data.(metricdata.Sum[int64]); ok {
+				for _, dp := range s.DataPoints {
+					if len(dp.Exemplars) > 0 {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
 func TestKeepalivePartialRejected(t *testing.T) {
 	_, x := x.New(t)
 	// timeout without time is a partial config that grpc would drop whole.

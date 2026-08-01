@@ -148,16 +148,23 @@ retry forever**, unlike the collector's 5m default. Documented in `retry.go`.
 
 `timeout` ✅ is wired for all three signals and the metric reader.
 
-⚠️ **Ceiling:** on **traces and logs** a value above **30s** is capped by the
-batch processor's own 30s export deadline (metrics are aligned and uncapped; a
-`sending_queue: {enabled: false}` simple processor is uncapped). Documented on
-the `Timeout` field.
+⚠️ **Ceiling (root support landed; otlp consumption push-gated).** On **traces
+and logs** a value above **30s** was capped by the batch processor's own 30s
+export deadline. `mkot.QueueConfig` now has an `ExportTimeout` field wired to
+`trace.WithExportTimeout` / `log.WithExportTimeout` that lifts it, so the root
+library supports it today.
 
-**Plan (P2).** Thread an export-timeout option into
-`QueueConfig.BuildSpanProcessor` / `BuildLogProcessor`
-(`trace.WithExportTimeout` / `log.WithExportTimeout`). Deferred because `otlp/`
-is a nested module pinning a published `mkot`, and the per-module `GOWORK=off`
-CI would fail until `mkot` is republished and the pin bumped.
+The remaining step is the 2-line consumption in `otlp` (set
+`q.ExportTimeout = e.Timeout` before building the processor). It is deferred
+because `otlp/` is a nested module that pins a **published** `mkot` under
+`GOWORK=off`, and the pin cannot reference an unpushed commit. Once the
+`ExportTimeout` commit is pushed:
+
+```sh
+cd otlp && go get github.com/lesomnus/mkot@main && go mod tidy
+```
+
+then wiring the two lines is CI-green. Under a local `go.work` it already works.
 
 ---
 
@@ -241,7 +248,7 @@ ones for "just reuse the file":
 - [ ] `auth:` block → bearer (file+refresh) / basic / oauth2 via PerRPCCredentials + HTTP RoundTripper
 
 ### P2 — common knobs
-- [ ] Lift the 30s trace/log timeout ceiling (export-timeout through `QueueConfig`) — after an `mkot` republish
+- [x] Lift the 30s trace/log timeout ceiling — root `QueueConfig.ExportTimeout` landed; otlp consumption push-gated (see §7)
 - [ ] `batch` standalone processor alias → exporter batch config
 - [x] `proxy_url` on the HTTP transport
 - [x] `service_config` on the gRPC transport (moved up from P3)

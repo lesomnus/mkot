@@ -148,12 +148,24 @@ OpenTelemetry Go SDK equivalent and are not implemented:
 - **`protocol: http/protobuf`**: the gRPC-only knobs (`keepalive`,
   `read_buffer_size`, `write_buffer_size`, `wait_for_ready`, `balancer_name`,
   `authority`, `reconnection_period`) are rejected rather than ignored.
-- **Auth**: only static `headers` (e.g. a fixed bearer token). OAuth2 or
-  refreshing-token auth extensions are not available — build the provider by hand
-  for those.
 - **Metrics**: views (histogram bucket boundaries, instrument rename/drop,
   attribute/cardinality limits), a custom aggregation selector, and external
   producers are not exposed.
 - **TLS**: TPM-backed keys.
-- **gRPC**: a custom service config beyond `balancer_name`, or reusing a pre-built
-  connection / attaching interceptors (not expressible in YAML).
+- **gRPC**: reusing a pre-built connection / attaching interceptors (not
+  expressible in YAML).
+
+Auth (`auth:` block — `bearer` with a static token or a re-read `token_file`,
+`basic`, or `oauth2` client-credentials) is configured inline rather than as a
+named extension:
+
+```yaml
+exporters:
+  otlp:
+    auth:
+      oauth2:
+        client_id: ${env:CLIENT_ID}
+        client_secret: ${env:CLIENT_SECRET}
+        token_url: https://idp.example/oauth2/token
+        scopes: [otlp.write]
+```

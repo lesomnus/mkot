@@ -90,8 +90,9 @@ type ExporterConfig struct {
 	// the environment proxy but has no per-client override.
 	ProxyURL string `yaml:"proxy_url,omitempty"`
 
-	// // Auth configuration for outgoing RPCs.
-	// Auth configoptional.Optional[configauth.Config] `yaml:"auth,omitempty"`
+	// Auth applies a credential (bearer / basic / oauth2) to every export,
+	// beyond the static Headers. See [AuthConfig].
+	Auth *AuthConfig `yaml:"auth,omitempty"`
 
 	// // Middlewares for the gRPC client.
 	// Middlewares []configmiddleware.Config `yaml:"middlewares,omitempty"`
@@ -486,6 +487,12 @@ func (e ExporterConfig) dialOpts() ([]grpc.DialOption, error) {
 	}
 	if e.BalancerName != "" {
 		opts = append(opts, grpc.WithDefaultServiceConfig(fmt.Sprintf(`{"loadBalancingConfig": [{%q: {}}]}`, e.BalancerName)))
+	}
+	if e.Auth != nil {
+		if err := e.Auth.validate(); err != nil {
+			return nil, err
+		}
+		opts = append(opts, grpc.WithPerRPCCredentials(e.Auth.perRPCCredentials()))
 	}
 
 	return opts, nil

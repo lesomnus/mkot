@@ -2,6 +2,7 @@ package otlp
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -42,6 +43,46 @@ func (e ExporterConfig) httpEndpointURL(signal string) (string, error) {
 	}
 	u.Path = path.Join(u.Path, "v1", signal)
 	return u.String(), nil
+}
+
+// httpTLS resolves the client TLS config for an HTTP builder: a nil config with
+// insecure=true means plaintext (http://), a non-nil config is the built client
+// TLS, and nil/false means the SDK default.
+func (e ExporterConfig) httpTLS() (cfg *tls.Config, insecure bool, err error) {
+	if e.TLS == nil {
+		return nil, false, nil
+	}
+	if e.TLS.Insecure {
+		return nil, true, nil
+	}
+	c, err := e.TLS.Build()
+	if err != nil {
+		return nil, false, fmt.Errorf("build TLS config: %w", err)
+	}
+	return c, false, nil
+}
+
+// authHTTPClient builds the single http.Client the auth path needs. Because
+// otlp*http.WithHTTPClient replaces the SDK's client wholesale, this client must
+// itself carry the TLS config, proxy, and timeout that the option path would
+// otherwise set, with the auth round tripper on top.
+func (e ExporterConfig) authHTTPClient(tlsCfg *tls.Config) (*http.Client, error) {
+	if err := e.Auth.validate(); err != nil {
+		return nil, err
+	}
+	tr := &http.Transport{TLSClientConfig: tlsCfg, Proxy: http.ProxyFromEnvironment}
+	if e.ProxyURL != "" {
+		u, err := url.Parse(e.ProxyURL)
+		if err != nil {
+			return nil, fmt.Errorf("invalid proxy_url %q: %w", e.ProxyURL, err)
+		}
+		tr.Proxy = http.ProxyURL(u)
+	}
+	client := &http.Client{Transport: e.Auth.roundTripper(tr)}
+	if e.Timeout > 0 {
+		client.Timeout = e.Timeout
+	}
+	return client, nil
 }
 
 // protocol normalizes the configured transport; empty defaults to grpc.
@@ -165,14 +206,23 @@ func (e ExporterConfig) spanHTTPOpts() ([]otlptracehttp.Option, error) {
 	}
 	opts := []otlptracehttp.Option{}
 
-	if e.TLS == nil {
-		// Default TLS config will be used.
-	} else if e.TLS.Insecure {
+	tlsCfg, insecure, err := e.httpTLS()
+	if err != nil {
+		return nil, err
+	}
+	if insecure {
 		opts = append(opts, otlptracehttp.WithInsecure())
-	} else if c, err := e.TLS.Build(); err != nil {
-		return nil, fmt.Errorf("build TLS config: %w", err)
-	} else {
-		opts = append(opts, otlptracehttp.WithTLSClientConfig(c))
+	}
+	// Auth needs a custom client, which owns TLS/proxy/timeout wholesale;
+	// otherwise those go through the individual options below.
+	if e.Auth != nil {
+		client, err := e.authHTTPClient(tlsCfg)
+		if err != nil {
+			return nil, err
+		}
+		opts = append(opts, otlptracehttp.WithHTTPClient(client))
+	} else if tlsCfg != nil {
+		opts = append(opts, otlptracehttp.WithTLSClientConfig(tlsCfg))
 	}
 
 	if e.Endpoint != "" {
@@ -198,10 +248,10 @@ func (e ExporterConfig) spanHTTPOpts() ([]otlptracehttp.Option, error) {
 	} else if h != nil {
 		opts = append(opts, otlptracehttp.WithHeaders(h))
 	}
-	if e.Timeout > 0 {
+	if e.Timeout > 0 && e.Auth == nil {
 		opts = append(opts, otlptracehttp.WithTimeout(e.Timeout))
 	}
-	if e.ProxyURL != "" {
+	if e.ProxyURL != "" && e.Auth == nil {
 		u, err := url.Parse(e.ProxyURL)
 		if err != nil {
 			return nil, fmt.Errorf("invalid proxy_url %q: %w", e.ProxyURL, err)
@@ -230,14 +280,23 @@ func (e ExporterConfig) metricHTTPOpts() ([]otlpmetrichttp.Option, error) {
 	}
 	opts := []otlpmetrichttp.Option{}
 
-	if e.TLS == nil {
-		// Default TLS config will be used.
-	} else if e.TLS.Insecure {
+	tlsCfg, insecure, err := e.httpTLS()
+	if err != nil {
+		return nil, err
+	}
+	if insecure {
 		opts = append(opts, otlpmetrichttp.WithInsecure())
-	} else if c, err := e.TLS.Build(); err != nil {
-		return nil, fmt.Errorf("build TLS config: %w", err)
-	} else {
-		opts = append(opts, otlpmetrichttp.WithTLSClientConfig(c))
+	}
+	// Auth needs a custom client, which owns TLS/proxy/timeout wholesale;
+	// otherwise those go through the individual options below.
+	if e.Auth != nil {
+		client, err := e.authHTTPClient(tlsCfg)
+		if err != nil {
+			return nil, err
+		}
+		opts = append(opts, otlpmetrichttp.WithHTTPClient(client))
+	} else if tlsCfg != nil {
+		opts = append(opts, otlpmetrichttp.WithTLSClientConfig(tlsCfg))
 	}
 
 	if e.Endpoint != "" {
@@ -263,10 +322,10 @@ func (e ExporterConfig) metricHTTPOpts() ([]otlpmetrichttp.Option, error) {
 	} else if h != nil {
 		opts = append(opts, otlpmetrichttp.WithHeaders(h))
 	}
-	if e.Timeout > 0 {
+	if e.Timeout > 0 && e.Auth == nil {
 		opts = append(opts, otlpmetrichttp.WithTimeout(e.Timeout))
 	}
-	if e.ProxyURL != "" {
+	if e.ProxyURL != "" && e.Auth == nil {
 		u, err := url.Parse(e.ProxyURL)
 		if err != nil {
 			return nil, fmt.Errorf("invalid proxy_url %q: %w", e.ProxyURL, err)
@@ -304,14 +363,23 @@ func (e ExporterConfig) logHTTPOpts() ([]otlploghttp.Option, error) {
 	}
 	opts := []otlploghttp.Option{}
 
-	if e.TLS == nil {
-		// Default TLS config will be used.
-	} else if e.TLS.Insecure {
+	tlsCfg, insecure, err := e.httpTLS()
+	if err != nil {
+		return nil, err
+	}
+	if insecure {
 		opts = append(opts, otlploghttp.WithInsecure())
-	} else if c, err := e.TLS.Build(); err != nil {
-		return nil, fmt.Errorf("build TLS config: %w", err)
-	} else {
-		opts = append(opts, otlploghttp.WithTLSClientConfig(c))
+	}
+	// Auth needs a custom client, which owns TLS/proxy/timeout wholesale;
+	// otherwise those go through the individual options below.
+	if e.Auth != nil {
+		client, err := e.authHTTPClient(tlsCfg)
+		if err != nil {
+			return nil, err
+		}
+		opts = append(opts, otlploghttp.WithHTTPClient(client))
+	} else if tlsCfg != nil {
+		opts = append(opts, otlploghttp.WithTLSClientConfig(tlsCfg))
 	}
 
 	if e.Endpoint != "" {
@@ -337,10 +405,10 @@ func (e ExporterConfig) logHTTPOpts() ([]otlploghttp.Option, error) {
 	} else if h != nil {
 		opts = append(opts, otlploghttp.WithHeaders(h))
 	}
-	if e.Timeout > 0 {
+	if e.Timeout > 0 && e.Auth == nil {
 		opts = append(opts, otlploghttp.WithTimeout(e.Timeout))
 	}
-	if e.ProxyURL != "" {
+	if e.ProxyURL != "" && e.Auth == nil {
 		u, err := url.Parse(e.ProxyURL)
 		if err != nil {
 			return nil, fmt.Errorf("invalid proxy_url %q: %w", e.ProxyURL, err)

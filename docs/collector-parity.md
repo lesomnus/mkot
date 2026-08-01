@@ -94,22 +94,24 @@ that only the client keypair rotates.
 
 ---
 
-## 4. Auth (`configauth` + extensions) — highest-value gap
+## 4. Auth (`configauth` + extensions)
 
-Only static `headers` are supported (`otlp/exporter.go:83` leaves `auth`
-commented out). Authenticated backends that need a refreshing credential cannot
-be reused:
+An inline `auth:` block (bearer / basic / oauth2) applies a credential to every
+export on both transports — gRPC via `grpc.WithPerRPCCredentials`, HTTP via a
+custom client whose round tripper sets the `Authorization` header.
 
-| collector authenticator | status | SDK path |
+| collector authenticator | mkot | status |
 |---|---|---|
-| `bearertokenauth` (static token) | ✅ via `headers` | — |
-| `bearertokenauth` (token from file, refreshed) | ❌ | `WithDialOption(grpc.WithPerRPCCredentials(...))` |
-| `oauth2clientauth` | ❌ | PerRPCCredentials with an `golang.org/x/oauth2` token source |
-| `basicauth` | ❌ | a static `Authorization: Basic` header, or PerRPCCredentials |
+| `bearertokenauth` (static token) | `auth.bearer.token` (or static `headers`) | ✅ |
+| `bearertokenauth` (token from file, refreshed) | `auth.bearer.token_file` (re-read each export) | ✅ |
+| `basicauth` | `auth.basic` (username/password) | ✅ |
+| `oauth2clientauth` | `auth.oauth2` (client-credentials, auto-refresh) | ✅ |
 
-**Plan (P1).** Add an `auth:` block on the exporter that maps to a
-`PerRPCCredentials` (gRPC) / `RoundTripper` (HTTP). Start with `bearertokenauth`
-(file + refresh) and `basicauth`; `oauth2clientauth` next.
+**Schema divergence.** The collector references a named auth *extension*
+(`auth: {authenticator: bearertokenauth}`); mkot has no extensions, so the
+credential is configured inline. The wire effect is identical. `auth.bearer`
+permits an insecure transport (matching the collector) — use TLS to protect the
+token. See `otlp/auth.go`.
 
 ---
 
@@ -247,7 +249,7 @@ substitution (both §1) — a lifted collector file no longer needs those edits.
 ### P1 — unlocks whole-file reuse
 - [x] `${env:VAR}` substitution before unmarshal (`mkot.Load`); `${file:path}` still open
 - [x] Accept `service.pipelines` + `traces/metrics/logs` as aliases for `providers`/`tracer…`
-- [ ] `auth:` block → bearer (file+refresh) / basic / oauth2 via PerRPCCredentials + HTTP RoundTripper
+- [x] `auth:` block → bearer (static + file, refreshed) / basic / oauth2 (client-credentials); gRPC PerRPCCredentials + HTTP round tripper
 
 ### P2 — common knobs
 - [x] Lift the 30s trace/log timeout ceiling — root `QueueConfig.ExportTimeout` landed; otlp consumption push-gated (see §7)

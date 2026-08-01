@@ -79,6 +79,17 @@ type ExporterConfig struct {
 	// Zero uses the SDK default. Not part of the collector schema.
 	ReconnectionPeriod time.Duration `yaml:"reconnection_period,omitempty"`
 
+	// ServiceConfig is a raw gRPC service config JSON (load balancing, method
+	// retry/timeout policy). Mutually exclusive with balancer_name, which is a
+	// shorthand for the load-balancing fragment. protocol grpc only.
+	ServiceConfig string `yaml:"service_config,omitempty"`
+
+	// ProxyURL routes HTTP exports through the given proxy (e.g.
+	// "http://proxy:3128"). Empty uses the standard HTTP_PROXY/HTTPS_PROXY
+	// environment. Mirrors confighttp.proxy_url. protocol http only; gRPC honors
+	// the environment proxy but has no per-client override.
+	ProxyURL string `yaml:"proxy_url,omitempty"`
+
 	// // Auth configuration for outgoing RPCs.
 	// Auth configoptional.Optional[configauth.Config] `yaml:"auth,omitempty"`
 
@@ -136,6 +147,9 @@ func (e ExporterConfig) spanOpts() ([]otlptracegrpc.Option, error) {
 	if err := e.checkEndpointTLS(); err != nil {
 		return nil, err
 	}
+	if err := e.checkGRPCTransport(); err != nil {
+		return nil, err
+	}
 	if e.TLS == nil {
 		// Default TLS config will be used.
 	} else if e.TLS.Insecure {
@@ -176,6 +190,9 @@ func (e ExporterConfig) spanOpts() ([]otlptracegrpc.Option, error) {
 	}
 	if e.ReconnectionPeriod > 0 {
 		opts = append(opts, otlptracegrpc.WithReconnectionPeriod(e.ReconnectionPeriod))
+	}
+	if e.ServiceConfig != "" {
+		opts = append(opts, otlptracegrpc.WithServiceConfig(e.ServiceConfig))
 	}
 	p, ok, err := e.retryPolicy()
 	if err != nil {
@@ -260,6 +277,9 @@ func (e ExporterConfig) metricOpts() ([]otlpmetricgrpc.Option, error) {
 	if err := e.checkEndpointTLS(); err != nil {
 		return nil, err
 	}
+	if err := e.checkGRPCTransport(); err != nil {
+		return nil, err
+	}
 	if e.TLS == nil {
 		// Default TLS config will be used.
 	} else if e.TLS.Insecure {
@@ -300,6 +320,9 @@ func (e ExporterConfig) metricOpts() ([]otlpmetricgrpc.Option, error) {
 	}
 	if e.ReconnectionPeriod > 0 {
 		opts = append(opts, otlpmetricgrpc.WithReconnectionPeriod(e.ReconnectionPeriod))
+	}
+	if e.ServiceConfig != "" {
+		opts = append(opts, otlpmetricgrpc.WithServiceConfig(e.ServiceConfig))
 	}
 	p, ok, err := e.retryPolicy()
 	if err != nil {
@@ -358,6 +381,9 @@ func (e ExporterConfig) logOpts() ([]otlploggrpc.Option, error) {
 	if err := e.checkEndpointTLS(); err != nil {
 		return nil, err
 	}
+	if err := e.checkGRPCTransport(); err != nil {
+		return nil, err
+	}
 	if e.TLS == nil {
 		// Default TLS config will be used.
 	} else if e.TLS.Insecure {
@@ -398,6 +424,9 @@ func (e ExporterConfig) logOpts() ([]otlploggrpc.Option, error) {
 	}
 	if e.ReconnectionPeriod > 0 {
 		opts = append(opts, otlploggrpc.WithReconnectionPeriod(e.ReconnectionPeriod))
+	}
+	if e.ServiceConfig != "" {
+		opts = append(opts, otlploggrpc.WithServiceConfig(e.ServiceConfig))
 	}
 	p, ok, err := e.retryPolicy()
 	if err != nil {
@@ -536,6 +565,20 @@ func (e ExporterConfig) checkDurations() error {
 		if e.Keepalive.Timeout < 0 {
 			return fmt.Errorf("keepalive: timeout must not be negative, got %s", e.Keepalive.Timeout)
 		}
+	}
+	return nil
+}
+
+// checkGRPCTransport rejects config that is meaningless or contradictory on the
+// gRPC transport: proxy_url is an HTTP-only knob (gRPC honors the environment
+// proxy), and service_config is the full JSON that balancer_name is a shorthand
+// for, so setting both is ambiguous.
+func (e ExporterConfig) checkGRPCTransport() error {
+	if e.ProxyURL != "" {
+		return fmt.Errorf("proxy_url is not supported with protocol grpc (it honors HTTP_PROXY/HTTPS_PROXY from the environment)")
+	}
+	if e.ServiceConfig != "" && e.BalancerName != "" {
+		return fmt.Errorf("service_config and balancer_name are mutually exclusive")
 	}
 	return nil
 }

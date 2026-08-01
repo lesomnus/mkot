@@ -66,7 +66,9 @@ literal string.
 |---|---|---|
 | `endpoint` | ✅ | host:port, `http(s)://` URL, and gRPC targets (`dns:///`, `unix:///`, `xds:///`); under `protocol: http` it is a base URL and `/v1/<signal>` is appended |
 | `protocol` (`grpc` / `http/protobuf`) | ✅ | |
-| `encoding` (`proto` / `json`, http) | ❌ | proto only; the http exporters accept `json` — not yet exposed |
+| `encoding` (`proto` / `json`, http) | 🚫 | the OTel Go SDK http exporters are protobuf-only; there is no `json` option to expose |
+| `proxy_url` (http) | ✅ | routes HTTP exports through a proxy; rejected under grpc |
+| `service_config` (grpc) | ✅ | raw gRPC service-config JSON; mutually exclusive with `balancer_name` |
 | `compression` | ⚠️ / 🚫 | only `gzip` (the SDK/grpc register nothing else); `zstd`/`snappy`/`zlib`/`deflate`/`lz4` are **rejected**. `none` defers to `OTEL_EXPORTER_OTLP_COMPRESSION` when that env var is set |
 
 ---
@@ -203,9 +205,9 @@ gap.
 | `keepalive` (`time`/`timeout`/`permit_without_stream`) | ✅ (sub-10s `time` rejected — grpc clamps it) |
 | `read_buffer_size`, `write_buffer_size`, `wait_for_ready`, `authority`, `balancer_name` | ✅ |
 | `reconnection_period` | ✅ (SDK, not a collector field) |
-| full gRPC service config (retry/health/method policy) | ⚠️ only `balancer_name`; `WithServiceConfig` not exposed |
-| `middlewares` | ❌ (`otlp/exporter.go:86`, commented out) — no interceptor hook |
-| `proxy_url` (http) | ❌ |
+| full gRPC service config (retry/health/method policy) | ✅ `service_config` (raw JSON); mutually exclusive with `balancer_name` |
+| `middlewares` | ❌ (`otlp/exporter.go`, commented out) — no interceptor hook |
+| `proxy_url` (http) | ✅ (HTTP only; rejected under grpc, which uses the env proxy) |
 | reuse a pre-built `*grpc.ClientConn` / attach interceptors | 🚫 not YAML-expressible |
 
 Under `protocol: http` the gRPC-only knobs are rejected, not ignored.
@@ -240,18 +242,18 @@ ones for "just reuse the file":
 
 ### P2 — common knobs
 - [ ] Lift the 30s trace/log timeout ceiling (export-timeout through `QueueConfig`) — after an `mkot` republish
-- [ ] OTLP/HTTP `encoding: json`
 - [ ] `batch` standalone processor alias → exporter batch config
-- [ ] `proxy_url` on the HTTP transport
+- [x] `proxy_url` on the HTTP transport
+- [x] `service_config` on the gRPC transport (moved up from P3)
 
 ### P3 — advanced
 - [ ] Metric `views:` (bucket boundaries, rename/drop, cardinality limits) + aggregation selector
-- [ ] `filter` / `transform` / `attributes` processors
-- [ ] Full gRPC `service_config` (mutually exclusive with `balancer_name`)
+- [ ] `filter` / `transform` / `attributes` processors — *metrics only*; span/log attribute mutation is not SDK-expressible (reclassified toward "won't do")
 - [ ] TLS CA-pool reload on `reload_interval`
 
 ### Won't do — no OTel Go SDK equivalent (rejected + documented)
 - Persistent `storage` sending queue · `tail_sampling` · `memory_limiter` ·
   TLS `tpm` · queue `sizer` / `wait_for_result` / `num_consumers > 1` /
   `batch.min_size` · retry `randomization_factor` / `multiplier` ·
-  non-gzip compression · `receivers` / `connectors`.
+  non-gzip compression · OTLP/HTTP `encoding: json` (SDK is protobuf-only) ·
+  span/log `filter`/`transform` attribute mutation · `receivers` / `connectors`.

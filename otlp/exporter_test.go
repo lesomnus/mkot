@@ -950,3 +950,49 @@ func TestTemporalitySelected(t *testing.T) {
 		}
 	}
 }
+
+// service_config and proxy_url are transport-scoped: service_config is gRPC-only
+// and conflicts with balancer_name; proxy_url is HTTP-only.
+func TestServiceConfigAndProxy(t *testing.T) {
+	_, x := x.New(t)
+
+	// service_config builds on gRPC.
+	sc := `{"loadBalancingConfig":[{"round_robin":{}}]}`
+	_, err := (ExporterConfig{ServiceConfig: sc}).spanOpts()
+	x.NoError(err)
+	// ...but conflicts with balancer_name.
+	if _, err := (ExporterConfig{ServiceConfig: sc, BalancerName: "round_robin"}).spanOpts(); err == nil {
+		t.Fatal("service_config + balancer_name must error")
+	}
+	// ...and is rejected under http.
+	if _, err := (ExporterConfig{Protocol: "http", ServiceConfig: sc}).spanHTTPOpts(); err == nil {
+		t.Fatal("service_config must be rejected with protocol http")
+	}
+
+	// proxy_url builds on http for all three signals.
+	for name, build := range map[string]func() error{
+		"span": func() error {
+			_, err := (ExporterConfig{Protocol: "http", ProxyURL: "http://proxy:3128"}).spanHTTPOpts()
+			return err
+		},
+		"metric": func() error {
+			_, err := (ExporterConfig{Protocol: "http", ProxyURL: "http://proxy:3128"}).metricHTTPOpts()
+			return err
+		},
+		"log": func() error {
+			_, err := (ExporterConfig{Protocol: "http", ProxyURL: "http://proxy:3128"}).logHTTPOpts()
+			return err
+		},
+	} {
+		if err := build(); err != nil {
+			t.Fatalf("%s: proxy_url should build on http: %v", name, err)
+		}
+	}
+	// ...is rejected under grpc, and a malformed URL errors.
+	if _, err := (ExporterConfig{ProxyURL: "http://proxy:3128"}).spanOpts(); err == nil {
+		t.Fatal("proxy_url must be rejected with protocol grpc")
+	}
+	if _, err := (ExporterConfig{Protocol: "http", ProxyURL: "://bad"}).spanHTTPOpts(); err == nil {
+		t.Fatal("a malformed proxy_url must error")
+	}
+}

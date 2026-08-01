@@ -3,6 +3,7 @@ package otlp
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/url"
 	"path"
 
@@ -73,6 +74,8 @@ func (e ExporterConfig) rejectGRPCOnly() error {
 		return fmt.Errorf("authority is not supported with protocol http")
 	case e.ReconnectionPeriod != 0:
 		return fmt.Errorf("reconnection_period is not supported with protocol http")
+	case e.ServiceConfig != "":
+		return fmt.Errorf("service_config is not supported with protocol http")
 	}
 	return nil
 }
@@ -198,6 +201,13 @@ func (e ExporterConfig) spanHTTPOpts() ([]otlptracehttp.Option, error) {
 	if e.Timeout > 0 {
 		opts = append(opts, otlptracehttp.WithTimeout(e.Timeout))
 	}
+	if e.ProxyURL != "" {
+		u, err := url.Parse(e.ProxyURL)
+		if err != nil {
+			return nil, fmt.Errorf("invalid proxy_url %q: %w", e.ProxyURL, err)
+		}
+		opts = append(opts, otlptracehttp.WithProxy(http.ProxyURL(u)))
+	}
 	if p, ok, err := e.retryPolicy(); err != nil {
 		return nil, err
 	} else if ok {
@@ -255,6 +265,13 @@ func (e ExporterConfig) metricHTTPOpts() ([]otlpmetrichttp.Option, error) {
 	}
 	if e.Timeout > 0 {
 		opts = append(opts, otlpmetrichttp.WithTimeout(e.Timeout))
+	}
+	if e.ProxyURL != "" {
+		u, err := url.Parse(e.ProxyURL)
+		if err != nil {
+			return nil, fmt.Errorf("invalid proxy_url %q: %w", e.ProxyURL, err)
+		}
+		opts = append(opts, otlpmetrichttp.WithProxy(http.ProxyURL(u)))
 	}
 	if p, ok, err := e.retryPolicy(); err != nil {
 		return nil, err
@@ -322,6 +339,13 @@ func (e ExporterConfig) logHTTPOpts() ([]otlploghttp.Option, error) {
 	}
 	if e.Timeout > 0 {
 		opts = append(opts, otlploghttp.WithTimeout(e.Timeout))
+	}
+	if e.ProxyURL != "" {
+		u, err := url.Parse(e.ProxyURL)
+		if err != nil {
+			return nil, fmt.Errorf("invalid proxy_url %q: %w", e.ProxyURL, err)
+		}
+		opts = append(opts, otlploghttp.WithProxy(http.ProxyURL(u)))
 	}
 	if p, ok, err := e.retryPolicy(); err != nil {
 		return nil, err

@@ -67,16 +67,25 @@ func TestBuildProcessorQueueKnobs(t *testing.T) {
 	_, err := mkot.QueueConfig{BlockOnOverflow: true}.BuildSpanProcessor(rec)
 	x.NoError(err)
 
-	// Inexpressible span knobs must error, whether the queue is enabled or not:
-	// disabling it does not make them expressible.
+	// num_consumers: 1 is exactly what the single-consumer batch processor does.
+	_, err = mkot.QueueConfig{NumConsumers: 1}.BuildSpanProcessor(rec)
+	x.NoError(err)
+
+	// Inexpressible or nonsensical span knobs must error, whether the queue is
+	// enabled or not: disabling it does not make them expressible.
 	disabled := false
 	for _, c := range []mkot.QueueConfig{
 		{NumConsumers: 4},
+		{NumConsumers: -1},
 		{WaitForResult: true},
 		{Batch: mkot.BatchConfig{MinSize: 100}},
+		{QueueSize: -1},
+		{Batch: mkot.BatchConfig{MaxSize: -1}},
+		{Batch: mkot.BatchConfig{FlushTimeout: -time.Second}},
 		{Enabled: &disabled, NumConsumers: 4},
 		{Enabled: &disabled, WaitForResult: true},
 		{Enabled: &disabled, Batch: mkot.BatchConfig{MinSize: 100}},
+		{Enabled: &disabled, QueueSize: -1},
 	} {
 		if _, err := c.BuildSpanProcessor(rec); err == nil {
 			t.Fatalf("expected an error for %+v", c)

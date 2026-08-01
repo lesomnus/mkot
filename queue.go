@@ -51,8 +51,11 @@ func (c QueueConfig) IsEnabled() bool {
 // trace.WithBlocking for spans but has no analogue in the log batch processor,
 // so it is rejected on the log path only.
 func (c QueueConfig) rejectUnsupported(isLog bool) error {
-	if c.NumConsumers != 0 {
-		return fmt.Errorf("sending_queue: num_consumers is not supported (the SDK batch processor is single-consumer)")
+	// The SDK batch processor drains from a single goroutine. num_consumers: 1
+	// describes exactly that, so it is accepted; anything higher cannot be
+	// honored, and a negative value is nonsense.
+	if c.NumConsumers < 0 || c.NumConsumers > 1 {
+		return fmt.Errorf("sending_queue: num_consumers %d is not supported (the SDK batch processor is single-consumer)", c.NumConsumers)
 	}
 	if c.WaitForResult {
 		return fmt.Errorf("sending_queue: wait_for_result is not supported (the SDK batch processor is asynchronous)")
@@ -62,6 +65,17 @@ func (c QueueConfig) rejectUnsupported(isLog bool) error {
 	}
 	if isLog && c.BlockOnOverflow {
 		return fmt.Errorf("sending_queue: block_on_overflow is not supported for logs (the SDK log batch processor drops on overflow)")
+	}
+	// Negative sizes would otherwise fall through the `> 0` mapping and silently
+	// take the SDK default; only a deliberate unset zero may do that.
+	if c.QueueSize < 0 {
+		return fmt.Errorf("sending_queue: queue_size must not be negative, got %d", c.QueueSize)
+	}
+	if c.Batch.MaxSize < 0 {
+		return fmt.Errorf("sending_queue: batch.max_size must not be negative, got %d", c.Batch.MaxSize)
+	}
+	if c.Batch.FlushTimeout < 0 {
+		return fmt.Errorf("sending_queue: batch.flush_timeout must not be negative, got %s", c.Batch.FlushTimeout)
 	}
 	return nil
 }

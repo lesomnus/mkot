@@ -39,6 +39,13 @@ type QueueConfig struct {
 	// StorageID *component.ID `yaml:"storage,omitempty"`
 	// BatchConfig it configures how the requests are consumed from the queue and batch together during consumption.
 	Batch BatchConfig `yaml:"batch,omitempty"`
+
+	// ExportTimeout bounds each export attempt in the batch processor. It is set
+	// programmatically from the exporter's `timeout` (not from YAML): the SDK
+	// batch processors otherwise wrap every export in their own 30s deadline,
+	// which silently truncates a larger configured timeout. Zero keeps the SDK
+	// default.
+	ExportTimeout time.Duration `yaml:"-"`
 }
 
 func (c QueueConfig) IsEnabled() bool {
@@ -107,6 +114,11 @@ func (c QueueConfig) BuildSpanProcessor(v trace.SpanExporter) (trace.SpanProcess
 		// Block the producer instead of dropping spans when the queue is full.
 		opts = append(opts, trace.WithBlocking())
 	}
+	if c.ExportTimeout > 0 {
+		// The batcher otherwise caps every export at its 30s default, silently
+		// truncating a larger configured timeout.
+		opts = append(opts, trace.WithExportTimeout(c.ExportTimeout))
+	}
 	return trace.NewBatchSpanProcessor(v, opts...), nil
 }
 
@@ -130,6 +142,9 @@ func (c QueueConfig) BuildLogProcessor(v log.Exporter) (log.Processor, error) {
 	}
 	if c.Batch.MaxSize > 0 {
 		opts = append(opts, log.WithExportMaxBatchSize(int(c.Batch.MaxSize)))
+	}
+	if c.ExportTimeout > 0 {
+		opts = append(opts, log.WithExportTimeout(c.ExportTimeout))
 	}
 	return log.NewBatchProcessor(v, opts...), nil
 }

@@ -156,3 +156,63 @@ func TestBlockOnOverflowBlocksProducer(t *testing.T) {
 		t.Fatal("block_on_overflow must block the producer instead of dropping spans")
 	}
 }
+
+// deadlineSpanExporter records the deadline of the context each export runs
+// under, so a test can see the batch processor's export-timeout wrapping.
+type deadlineSpanExporter struct {
+	mu       sync.Mutex
+	deadline time.Time
+	ok       bool
+	done     chan struct{}
+}
+
+func (e *deadlineSpanExporter) ExportSpans(ctx context.Context, _ []trace.ReadOnlySpan) error {
+	e.mu.Lock()
+	e.deadline, e.ok = ctx.Deadline()
+	e.mu.Unlock()
+	select {
+	case <-e.done:
+	default:
+		close(e.done)
+	}
+	return nil
+}
+
+func (e *deadlineSpanExporter) Shutdown(context.Context) error { return nil }
+
+// ExportTimeout must reach the batch processor's export deadline: without it the
+// SDK caps every export at its 30s default, silently truncating a larger
+// configured timeout.
+func TestExportTimeoutLiftsTheCeiling(t *testing.T) {
+	budget := func(t *testing.T, timeout time.Duration) time.Duration {
+		t.Helper()
+		ctx, x := x.New(t)
+		exp := &deadlineSpanExporter{done: make(chan struct{})}
+		p, err := mkot.QueueConfig{ExportTimeout: timeout}.BuildSpanProcessor(exp)
+		x.NoError(err)
+		tp := trace.NewTracerProvider(trace.WithSpanProcessor(p))
+		_, span := tp.Tracer("t").Start(ctx, "s")
+		span.End()
+		x.NoError(tp.ForceFlush(ctx))
+		select {
+		case <-exp.done:
+		case <-time.After(3 * time.Second):
+			t.Fatal("no export observed")
+		}
+		exp.mu.Lock()
+		defer exp.mu.Unlock()
+		if !exp.ok {
+			t.Fatal("export ran with no deadline")
+		}
+		return time.Until(exp.deadline)
+	}
+
+	// Default (unset): the SDK's 30s ceiling.
+	if d := budget(t, 0); d > 31*time.Second {
+		t.Fatalf("unset export timeout should stay at the 30s default, got ~%s", d)
+	}
+	// Set above the default: the ceiling is lifted.
+	if d := budget(t, 90*time.Second); d < 60*time.Second {
+		t.Fatalf("export timeout 90s was capped at ~%s (the 30s default was not lifted)", d)
+	}
+}

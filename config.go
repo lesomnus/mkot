@@ -50,6 +50,31 @@ type config struct {
 	Processors map[Id]ast.Node
 	Exporters  map[Id]ast.Node
 	Providers  map[Id]*ProviderConfig
+	Service    *serviceConfig
+}
+
+// serviceConfig accepts the collector's `service.pipelines` block so a collector
+// file's pipeline wiring maps onto mkot providers. Only the pipelines are read;
+// `service.extensions` / `service.telemetry` are ignored.
+type serviceConfig struct {
+	Pipelines map[Id]*pipelineConfig `yaml:"pipelines,omitempty"`
+}
+
+type pipelineConfig struct {
+	// Receivers are accepted for compatibility but ignored: the application
+	// itself is the telemetry source, so mkot has no receivers.
+	Receivers  []Id `yaml:"receivers,omitempty"`
+	Processors []Id `yaml:"processors,omitempty"`
+	Exporters  []Id `yaml:"exporters,omitempty"`
+}
+
+// pipelineSignalToProvider maps a collector pipeline signal to the mkot provider
+// type. mkot names providers tracer/meter/logger where the collector names
+// pipelines traces/metrics/logs.
+var pipelineSignalToProvider = map[string]string{
+	"traces":  "tracer",
+	"metrics": "meter",
+	"logs":    "logger",
 }
 
 func (c *Config) UnmarshalYAML(unmarshal func(any) error) error {
@@ -114,10 +139,32 @@ func (c *Config) UnmarshalYAML(unmarshal func(any) error) error {
 		c.Exporters[k] = d
 	}
 
-	c.Providers = c_.Providers
+	for k, v := range c_.Providers {
+		c.Providers[k] = v
+	}
+
+	errs_service := []error{}
+	if c_.Service != nil {
+		for k, p := range c_.Service.Pipelines {
+			prov, ok := pipelineSignalToProvider[k.Type()]
+			if !ok {
+				errs_service = append(errs_service, fmt.Errorf("%q: unknown pipeline signal (want traces, metrics, or logs)", k.String()))
+				continue
+			}
+			id := Id(prov).WithName(k.Name())
+			if _, dup := c.Providers[id]; dup {
+				errs_service = append(errs_service, fmt.Errorf("%q: also defined under providers.%s", k.String(), id.String()))
+				continue
+			}
+			// Receivers are intentionally ignored (the app is the source).
+			c.Providers[id] = &ProviderConfig{Processors: p.Processors, Exporters: p.Exporters}
+		}
+	}
+
 	return errors.Join(
 		z.Err(errors.Join(errs_processor...), ".processor"),
 		z.Err(errors.Join(errs_exporter...), ".exporter"),
+		z.Err(errors.Join(errs_service...), ".service"),
 	)
 }
 

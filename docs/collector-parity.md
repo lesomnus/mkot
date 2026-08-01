@@ -30,20 +30,20 @@ that closing the list is a matter of working through it.
 
 ---
 
-## 1. Config file structure (top level) — the biggest reuse gap
+## 1. Config file structure (top level)
 
-A collector file and an mkot file differ at the top level, so a config is **not**
-liftable whole today; only the `exporters:`/`processors:` *blocks* transfer.
+The top level now transfers: `service.pipelines` is accepted as an alias, and
+`${env:...}` resolves. `receivers` are read-and-ignored (the app is the source),
+so a collector file lifts with few or no edits.
 
 | collector | mkot | status | note |
 |---|---|---|---|
-| `receivers:` | — | 🚫 | the app itself is the telemetry source |
+| `receivers:` | — | 🚫 | the app itself is the telemetry source (a pipeline's `receivers` list is accepted and ignored) |
 | `exporters:` | `exporters:` | ✅ | same key |
 | `processors:` | `processors:` | ✅ | same key, limited set — see §9 |
 | `extensions:` | — | ❌ | needed for auth / storage — see §4, §5 |
 | `connectors:` | — | 🚫 | no in-SDK equivalent |
-| `service.pipelines.traces` | `providers.tracer` | ⚠️ | **different key path and signal names** (`traces/metrics/logs` → `tracer/meter/logger`) |
-| `service.pipelines.<x>.receivers` | — | 🚫 | n/a |
+| `service.pipelines.{traces,metrics,logs}` | `providers.{tracer,meter,logger}` | ✅ | accepted as an alias; the `/name` suffix and processor/exporter lists are preserved; `providers:` still works natively |
 | `service.telemetry` | — | ❌ | self-observability config |
 | `${env:VAR}` substitution | `mkot.Load` | ✅ | `${env:NAME}` / `${env:NAME:-default}`, `$$` escape, error on unset |
 | `${file:path}` substitution | — | ❌ | not yet |
@@ -56,9 +56,10 @@ before unmarshalling, so the ubiquitous `endpoint: ${env:OTEL_EXPORTER_OTLP_ENDP
 / `headers: {authorization: ${env:TOKEN}}` collector idiom resolves. Plain
 `yaml.Unmarshal` still works without expansion.
 
-**Pipeline naming (still open).** Either (a) accept `service.pipelines` +
-`traces/metrics/logs` as aliases mapping onto `providers`/`tracer…`, or (b)
-document the mapping as the one required edit.
+**Pipeline naming.** `service.pipelines.{traces,metrics,logs}` is accepted and
+mapped onto `providers.{tracer,meter,logger}` in `config.go` (signal `/name`
+preserved, `receivers` ignored). Defining the same provider under both
+`providers:` and `service.pipelines:` is an error.
 
 ---
 
@@ -228,17 +229,16 @@ Under `protocol: http` the gRPC-only knobs are rejected, not ignored.
 Settings that look identical but behave differently. These are the dangerous
 ones for "just reuse the file":
 
-1. **Pipeline wiring** — `service.pipelines.{traces,metrics,logs}` →
-   `providers.{tracer,meter,logger}` (§1).
-2. **No `${env:...}` substitution** — env-templated endpoints/tokens become
-   literal strings (§1).
-3. **`sending_queue`** is an SDK batch buffer, not an async retry queue; and
+1. **`sending_queue`** is an SDK batch buffer, not an async retry queue; and
    `queue_size` is in spans/records regardless of any `sizer` (§5).
-4. **`retry_on_failure.max_elapsed_time: 0`** means forever, vs the collector's
+2. **`retry_on_failure.max_elapsed_time: 0`** means forever, vs the collector's
    bounded 5m default (§6).
-5. **`timeout` > 30s** is capped on traces/logs (§7).
-6. **`compression: none`** defers to `OTEL_EXPORTER_OTLP_COMPRESSION` (§2).
-7. **`sending_queue` on metrics** is ignored — use `interval` (§5).
+3. **`timeout` > 30s** is capped on traces/logs until the otlp consumption lands (§7).
+4. **`compression: none`** defers to `OTEL_EXPORTER_OTLP_COMPRESSION` (§2).
+5. **`sending_queue` on metrics** is ignored — use `interval` (§5).
+
+Resolved since the first draft: `service.pipelines` aliasing and `${env:...}`
+substitution (both §1) — a lifted collector file no longer needs those edits.
 
 ---
 
@@ -246,7 +246,7 @@ ones for "just reuse the file":
 
 ### P1 — unlocks whole-file reuse
 - [x] `${env:VAR}` substitution before unmarshal (`mkot.Load`); `${file:path}` still open
-- [ ] Accept `service.pipelines` + `traces/metrics/logs` as aliases for `providers`/`tracer…` (or document the one-line mapping)
+- [x] Accept `service.pipelines` + `traces/metrics/logs` as aliases for `providers`/`tracer…`
 - [ ] `auth:` block → bearer (file+refresh) / basic / oauth2 via PerRPCCredentials + HTTP RoundTripper
 
 ### P2 — common knobs

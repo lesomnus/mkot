@@ -129,6 +129,10 @@ processors:
 
 ### Not supported
 
+For the full collector-config parity map — what transfers directly, what
+diverges, and the roadmap for the rest — see
+[docs/collector-parity.md](docs/collector-parity.md).
+
 Config the SDK cannot express is rejected with an error on the signals it
 applies to, rather than silently dropped. These collector features have no
 OpenTelemetry Go SDK equivalent and are not implemented:

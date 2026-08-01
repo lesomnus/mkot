@@ -45,18 +45,20 @@ liftable whole today; only the `exporters:`/`processors:` *blocks* transfer.
 | `service.pipelines.traces` | `providers.tracer` | ⚠️ | **different key path and signal names** (`traces/metrics/logs` → `tracer/meter/logger`) |
 | `service.pipelines.<x>.receivers` | — | 🚫 | n/a |
 | `service.telemetry` | — | ❌ | self-observability config |
-| `${env:VAR}` / `${file:path}` substitution | — | ❌ | **secrets/endpoints from env do not resolve** |
+| `${env:VAR}` substitution | `mkot.Load` | ✅ | `${env:NAME}` / `${env:NAME:-default}`, `$$` escape, error on unset |
+| `${file:path}` substitution | — | ❌ | not yet |
 
 Confirmed in `config.go` (top-level keys `enabled`/`processors`/`exporters`/`providers`)
-and `resolver.go:122,199,289` (`tracer`/`meter`/`logger` ids). No env expansion
-exists on the unmarshal path.
+and `resolver.go:122,199,289` (`tracer`/`meter`/`logger` ids).
 
-**Plan.** Either (a) accept `service.pipelines` + `traces/metrics/logs` as
-aliases that map onto `providers`/`tracer…`, or (b) document the mapping as the
-one required edit. Add `${env:...}` substitution before unmarshal (P1) — without
-it, the ubiquitous `endpoint: ${env:OTEL_EXPORTER_OTLP_ENDPOINT}` /
-`headers: {authorization: ${env:TOKEN}}` collector idiom silently becomes a
-literal string.
+**Env substitution.** `mkot.Load(data)` expands `${env:...}` (see `config_env.go`)
+before unmarshalling, so the ubiquitous `endpoint: ${env:OTEL_EXPORTER_OTLP_ENDPOINT}`
+/ `headers: {authorization: ${env:TOKEN}}` collector idiom resolves. Plain
+`yaml.Unmarshal` still works without expansion.
+
+**Pipeline naming (still open).** Either (a) accept `service.pipelines` +
+`traces/metrics/logs` as aliases mapping onto `providers`/`tracer…`, or (b)
+document the mapping as the one required edit.
 
 ---
 
@@ -243,7 +245,7 @@ ones for "just reuse the file":
 ## Roadmap
 
 ### P1 — unlocks whole-file reuse
-- [ ] `${env:VAR}` (and ideally `${file:path}`) substitution before unmarshal
+- [x] `${env:VAR}` substitution before unmarshal (`mkot.Load`); `${file:path}` still open
 - [ ] Accept `service.pipelines` + `traces/metrics/logs` as aliases for `providers`/`tracer…` (or document the one-line mapping)
 - [ ] `auth:` block → bearer (file+refresh) / basic / oauth2 via PerRPCCredentials + HTTP RoundTripper
 

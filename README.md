@@ -39,14 +39,14 @@ package main
 import (
 	"context"
 
-	"github.com/goccy/go-yaml"
 	"github.com/lesomnus/mkot"
 	_ "github.com/lesomnus/mkot/otlp"
 )
 
 func main() {
-	conf := &mkot.Config{}
-	err := yaml.Unmarshal([]byte("..."), conf)
+	// Load expands ${env:VAR} references (like the collector) before parsing;
+	// plain yaml.Unmarshal into a *mkot.Config also works, without expansion.
+	conf, err := mkot.Load([]byte("..."))
 	if err != nil {
 		panic(err)
 	}

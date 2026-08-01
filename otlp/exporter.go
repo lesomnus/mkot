@@ -418,6 +418,10 @@ func (e ExporterConfig) logOpts() ([]otlploggrpc.Option, error) {
 	return opts, nil
 }
 
+// keepaliveMinTime is grpc-go internal.KeepaliveMinPingTime: a shorter client
+// ping interval is silently clamped up to this value.
+const keepaliveMinTime = 10 * time.Second
+
 func (e ExporterConfig) dialOpts() ([]grpc.DialOption, error) {
 	opts := []grpc.DialOption{}
 	if e.ReadBufferSize > 0 {
@@ -434,10 +438,15 @@ func (e ExporterConfig) dialOpts() ([]grpc.DialOption, error) {
 		// up to its 10s minimum, which would silently ENABLE pings for an empty
 		// block. A timeout/permit_without_stream set without time is a partial
 		// config that would otherwise be dropped whole — reject it instead.
+		// (A negative time is already rejected by checkDurations.)
 		if e.Keepalive.Time <= 0 {
 			if e.Keepalive.Timeout != 0 || e.Keepalive.PermitWithoutStream {
 				return nil, fmt.Errorf("keepalive: time must be set when timeout or permit_without_stream is configured")
 			}
+		} else if e.Keepalive.Time < keepaliveMinTime {
+			// grpc silently clamps a shorter interval up to its 10s minimum, so a
+			// configured 1s would run at 10s with no diagnostic. Reject it.
+			return nil, fmt.Errorf("keepalive: time must be at least %s (grpc clamps shorter intervals), got %s", keepaliveMinTime, e.Keepalive.Time)
 		} else {
 			opts = append(opts, grpc.WithKeepaliveParams(keepalive.ClientParameters{
 				Time:                e.Keepalive.Time,

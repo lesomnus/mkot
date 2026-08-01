@@ -467,8 +467,15 @@ func TestKeepalivePartialRejected(t *testing.T) {
 	if _, err := (ExporterConfig{Keepalive: &KeepaliveConfig{PermitWithoutStream: true}}).spanOpts(); err == nil {
 		t.Fatal("keepalive permit_without_stream without time must error")
 	}
-	// A full keepalive block, and an empty one, both build cleanly.
+	// A sub-10s time would be silently clamped up to grpc's minimum.
+	if _, err := (ExporterConfig{Keepalive: &KeepaliveConfig{Time: time.Second}}).spanOpts(); err == nil {
+		t.Fatal("keepalive time below grpc's 10s minimum must error")
+	}
+	// A full keepalive block, one at exactly the minimum, and an empty one all
+	// build cleanly.
 	_, err := (ExporterConfig{Keepalive: &KeepaliveConfig{Time: 30 * time.Second, Timeout: time.Second}}).spanOpts()
+	x.NoError(err)
+	_, err = (ExporterConfig{Keepalive: &KeepaliveConfig{Time: 10 * time.Second}}).spanOpts()
 	x.NoError(err)
 	_, err = (ExporterConfig{Keepalive: &KeepaliveConfig{}}).spanOpts()
 	x.NoError(err)

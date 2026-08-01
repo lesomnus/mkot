@@ -123,6 +123,12 @@ type ExporterConfig struct {
 	// "trace_based" (SDK default when unset), "always_on", or "always_off".
 	// Not part of the collector schema.
 	ExemplarFilter string `yaml:"exemplar_filter,omitempty"`
+
+	// HistogramAggregation selects the default histogram aggregation:
+	// "explicit" (default, fixed bucket boundaries) or "exponential" (base-2
+	// exponential). Not part of the collector schema (an SDK aggregation
+	// selector).
+	HistogramAggregation string `yaml:"histogram_aggregation,omitempty"`
 }
 
 func (e ExporterConfig) SpanExporter(ctx context.Context) (trace.SpanExporter, []trace.TracerProviderOption, error) {
@@ -352,6 +358,11 @@ func (e ExporterConfig) metricOpts() ([]otlpmetricgrpc.Option, error) {
 		opts = append(opts, otlpmetricgrpc.WithTemporalitySelector(metric.LowMemoryTemporalitySelector))
 	default:
 		return nil, fmt.Errorf("unknown temporality %q (want cumulative, delta, or lowmemory)", e.Temporality)
+	}
+	if sel, ok, err := e.aggregationSelector(); err != nil {
+		return nil, err
+	} else if ok {
+		opts = append(opts, otlpmetricgrpc.WithAggregationSelector(sel))
 	}
 
 	return opts, nil
@@ -630,6 +641,25 @@ func (e ExporterConfig) httpEndpointHasScheme() (bool, error) {
 		return true, nil
 	default:
 		return false, fmt.Errorf("unsupported endpoint scheme %q for protocol http (want http or https)", s)
+	}
+}
+
+// aggregationSelector maps histogram_aggregation onto an SDK aggregation
+// selector; ok=false leaves the exporter default (explicit-bucket histograms).
+func (e ExporterConfig) aggregationSelector() (metric.AggregationSelector, bool, error) {
+	switch e.HistogramAggregation {
+	case "", "explicit":
+		return nil, false, nil
+	case "exponential":
+		sel := func(kind metric.InstrumentKind) metric.Aggregation {
+			if kind == metric.InstrumentKindHistogram {
+				return metric.AggregationBase2ExponentialHistogram{MaxSize: 160, MaxScale: 20}
+			}
+			return metric.DefaultAggregationSelector(kind)
+		}
+		return sel, true, nil
+	default:
+		return nil, false, fmt.Errorf("unknown histogram_aggregation %q (want explicit or exponential)", e.HistogramAggregation)
 	}
 }
 

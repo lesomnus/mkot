@@ -115,6 +115,7 @@ exporters:
     interval: 60s             # metric push period
     temporality: cumulative   # cumulative (default), delta, or lowmemory
     exemplar_filter: trace_based
+    histogram_aggregation: explicit  # explicit (default) or exponential
 ```
 
 Head sampling is a separate `sampler` processor:

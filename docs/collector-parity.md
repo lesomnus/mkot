@@ -86,11 +86,12 @@ preserved, `receivers` ignored). Defining the same provider under both
 | `min_version`, `max_version` | ✅ (pair validated) |
 | `cipher_suites` | ✅ (TLS 1.2 only — Go ignores it at 1.3; insecure suites rejected) |
 | `curve_preferences` | ✅ |
-| `reload_interval` | ⚠️ reloads the **client cert** only; the collector also reloads the CA pool |
+| `reload_interval` | ⚠️ reloads the **client cert** (via `GetClientCertificate`); the CA pool cannot reload — `crypto/tls` has no client-side dynamic root hook, so CA rotation needs a restart |
 | `tpm` | 🚫 not in the struct |
 
-**Plan.** Extend `reload_interval` to re-read the CA pool too (P3), or document
-that only the client keypair rotates.
+The client-certificate rotation that mTLS deployments actually need works;
+CA-pool rotation is a `crypto/tls` limitation (no `GetRootCAs` callback for a
+client), so it is documented rather than faked.
 
 ---
 
@@ -180,11 +181,13 @@ then wiring the two lines is CI-green. Under a local `go.work` it already works.
 | `interval` (push period) | ✅ | SDK owns the cadence; not a collector exporter field |
 | `temporality` (`cumulative`/`delta`/`lowmemory`) | ✅ | |
 | `exemplar_filter` (`trace_based`/`always_on`/`always_off`) | ✅ | |
-| views (histogram buckets, instrument rename/drop, attribute/cardinality limits) | ❌ | SDK `metric.View`; collector does this in `filter`/`transform`/`metricstransform` processors |
-| aggregation selector | ❌ | `otlpmetricgrpc.WithAggregationSelector` |
+| `histogram_aggregation` (`explicit` / `exponential`) | ✅ | `otlp*{grpc,http}.WithAggregationSelector` — switches histograms to base-2 exponential |
+| per-instrument views (rename/drop, attribute/cardinality limits, custom buckets) | ❌ | SDK `metric.View` — a larger per-instrument mini-schema, still TODO |
 | external `Producer`s (bridges) | ❌ | `metric.WithProducer` |
 
-**Plan (P3).** Expose a `views:` config and an aggregation selector.
+**Plan (P3).** The default histogram aggregation is exposed as
+`histogram_aggregation`. Full per-instrument `views:` (rename/drop/attribute
+filtering/custom bucket boundaries) remain a larger TODO.
 
 ---
 
@@ -253,18 +256,19 @@ substitution (both §1) — a lifted collector file no longer needs those edits.
 
 ### P2 — common knobs
 - [x] Lift the 30s trace/log timeout ceiling — root `QueueConfig.ExportTimeout` landed; otlp consumption push-gated (see §7)
-- [ ] `batch` standalone processor alias → exporter batch config
 - [x] `proxy_url` on the HTTP transport
-- [x] `service_config` on the gRPC transport (moved up from P3)
+- [x] `service_config` on the gRPC transport
+- [~] `batch` standalone processor — reclassified: batching is exporter-bound in the SDK (a `BatchSpanProcessor` wraps an exporter), so a pipeline-level `batch` processor has nothing to batch into. The collector's `batch` maps to `exporters.otlp.sending_queue.batch`; a `processors: [batch]` entry stays a documented mapping, not a component.
 
 ### P3 — advanced
-- [ ] Metric `views:` (bucket boundaries, rename/drop, cardinality limits) + aggregation selector
-- [ ] `filter` / `transform` / `attributes` processors — *metrics only*; span/log attribute mutation is not SDK-expressible (reclassified toward "won't do")
-- [ ] TLS CA-pool reload on `reload_interval`
+- [x] Default histogram aggregation (`histogram_aggregation: exponential`) via the SDK aggregation selector
+- [ ] Full per-instrument metric `views:` (rename/drop, attribute/cardinality limits, custom buckets) — larger mini-schema, still open
+- [~] TLS CA-pool reload — reclassified toward won't-do: `crypto/tls` has **no client-side dynamic root pool** (no `GetRootCAs` hook), so only the client certificate reloads (via `GetClientCertificate`). CA rotation needs a process restart.
 
-### Won't do — no OTel Go SDK equivalent (rejected + documented)
+### Won't do — no OTel Go SDK / crypto-library equivalent (rejected + documented)
 - Persistent `storage` sending queue · `tail_sampling` · `memory_limiter` ·
-  TLS `tpm` · queue `sizer` / `wait_for_result` / `num_consumers > 1` /
-  `batch.min_size` · retry `randomization_factor` / `multiplier` ·
-  non-gzip compression · OTLP/HTTP `encoding: json` (SDK is protobuf-only) ·
-  span/log `filter`/`transform` attribute mutation · `receivers` / `connectors`.
+  TLS `tpm` · TLS client CA-pool reload (no `crypto/tls` hook) · queue `sizer` /
+  `wait_for_result` / `num_consumers > 1` / `batch.min_size` · retry
+  `randomization_factor` / `multiplier` · non-gzip compression · OTLP/HTTP
+  `encoding: json` (SDK is protobuf-only) · span/log `filter`/`transform`
+  attribute mutation · standalone `batch` processor · `receivers` / `connectors`.

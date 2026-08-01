@@ -996,3 +996,30 @@ func TestServiceConfigAndProxy(t *testing.T) {
 		t.Fatal("a malformed proxy_url must error")
 	}
 }
+
+// histogram_aggregation selects the default histogram aggregation and reaches
+// the exporter for both transports; an unknown value is rejected.
+func TestHistogramAggregation(t *testing.T) {
+	ctx, x := x.New(t)
+	for _, protocol := range []string{"grpc", "http"} {
+		e := ExporterConfig{Protocol: protocol, HistogramAggregation: "exponential", Endpoint: "127.0.0.1:4317"}
+		v, err := e.newMetricExporter(ctx)
+		x.NoError(err)
+		agg := v.Aggregation(metric.InstrumentKindHistogram)
+		if _, ok := agg.(metric.AggregationBase2ExponentialHistogram); !ok {
+			t.Fatalf("%s: histogram aggregation is %T, want base-2 exponential", protocol, agg)
+		}
+		x.NoError(v.Shutdown(context.Background()))
+	}
+	// Default stays explicit-bucket.
+	v, err := (ExporterConfig{Endpoint: "127.0.0.1:4317"}).newMetricExporter(ctx)
+	x.NoError(err)
+	if _, ok := v.Aggregation(metric.InstrumentKindHistogram).(metric.AggregationExplicitBucketHistogram); !ok {
+		t.Fatal("default histogram aggregation should be explicit-bucket")
+	}
+	x.NoError(v.Shutdown(context.Background()))
+	// Unknown value errors.
+	if _, err := (ExporterConfig{HistogramAggregation: "tdigest"}).metricOpts(); err == nil {
+		t.Fatal("unknown histogram_aggregation must error")
+	}
+}

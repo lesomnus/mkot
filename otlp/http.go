@@ -351,6 +351,11 @@ func (e ExporterConfig) metricHTTPOpts() ([]otlpmetrichttp.Option, error) {
 	default:
 		return nil, fmt.Errorf("unknown temporality %q (want cumulative, delta, or lowmemory)", e.Temporality)
 	}
+	if sel, ok, err := e.aggregationSelector(); err != nil {
+		return nil, err
+	} else if ok {
+		opts = append(opts, otlpmetrichttp.WithAggregationSelector(sel))
+	}
 	return opts, nil
 }
 

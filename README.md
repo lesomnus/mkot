@@ -72,6 +72,72 @@ func main() {
 }
 ```
 
+## otx
+
+[otx][otx] carries the three providers through a `context.Context` instead of
+threading them through every signature. `mkotx` builds one from a config, which
+is the whole of the wiring above:
+
+```go
+package main
+
+import (
+	"context"
+
+	"github.com/lesomnus/mkot"
+	"github.com/lesomnus/mkot/mkotx"
+	_ "github.com/lesomnus/mkot/otlp"
+	"github.com/lesomnus/otx"
+	"github.com/lesomnus/otx/log"
+)
+
+func main() {
+	conf, err := mkot.Load([]byte("..."))
+	if err != nil {
+		panic(err)
+	}
+
+	ctx := context.TODO()
+
+	// "" is the provider name, as in resolver.Tracer(ctx, "").
+	x, err := mkotx.FromConfig(ctx, conf, "")
+	if err != nil {
+		panic(err)
+	}
+
+	// The resolver is the Controller of the Otx, so this starts the exporters
+	// the config built, and Shutdown stops them.
+	if err := x.Start(ctx); err != nil {
+		panic(err)
+	}
+	defer x.Shutdown(ctx)
+
+	ctx = otx.Into(ctx, x)
+
+	// Anywhere downstream, with nothing but the context.
+	ctx, span := otx.TraceStart(ctx, "work")
+	defer span.End()
+
+	log.From(ctx).Info("hello")
+}
+```
+
+A signal the config does not mention resolves to `ErrNotExist`, which is not an
+error here: that signal is simply off, and the no-op provider is used. Anything
+else is returned, and no `Otx` with it. Take `mkotx.New` instead of
+`FromConfig` when the resolver is needed afterwards, to resolve a second
+provider under another name.
+
+```sh
+go get github.com/lesomnus/mkot/mkotx
+```
+
+It is a module of its own: otx is of no use to a program that only reads a
+config, and mkot is of no use to one that is handed its providers by something
+else.
+
+[otx]: https://github.com/lesomnus/otx
+
 ## OTLP exporter
 
 The `otlp` exporter wraps the OpenTelemetry Go SDK OTLP exporters. Its config

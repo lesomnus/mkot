@@ -17,10 +17,18 @@ type ExporterConfig struct {
 	// This option can only be used when use_internal_logger is false.
 	// Special strings "stdout" and "stderr" are interpreted as os.Stdout and os.Stderr respectively.
 	// All other values are treated as file paths.
-	// If not set, defaults to ["stderr"].
+	// If neither this nor Outputs is set, defaults to ["stderr"] -- and to
+	// ["console"] on Wasm, where stderr reaches the browser as text and a
+	// coloured line arrives with its escape sequences printed.
 	OutputPaths []string `yaml:"output_paths,omitempty"`
 
 	// Outputs is a list of functions that opens [io.WriteCloser]s to write logging output to.
+	//
+	// It is written **in addition** to OutputPaths, not instead of it. Naming
+	// one here and leaving OutputPaths empty used to mean the default as well,
+	// so every line was written twice -- which is not what somebody supplying a
+	// writer of their own has ever meant. The default now applies only when
+	// neither says anything.
 	Outputs []mkot.WriterOpenFunc `yaml:"-"`
 }
 
@@ -37,8 +45,8 @@ func (e ExporterConfig) LogExporter(ctx context.Context) (log.Exporter, []log.Lo
 
 func (e ExporterConfig) open() (io.WriteCloser, error) {
 	ps := e.OutputPaths
-	if len(ps) == 0 {
-		ps = []string{"stderr"}
+	if len(ps) == 0 && len(e.Outputs) == 0 {
+		ps = defaultOutputPaths()
 	}
 
 	ws, err := mkot.Outputs.OpenAll(ps)

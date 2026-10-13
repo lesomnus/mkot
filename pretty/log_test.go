@@ -8,6 +8,7 @@ import (
 
 	"github.com/lesomnus/mkot/pretty"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/log"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -26,9 +27,9 @@ func TestPrettyLogExporter(t *testing.T) {
 		l := p.Logger("test")
 
 		r := log.Record{}
-		r.SetBody(log.StringValue("foo"))
+		r.SetBody(attribute.StringValue("foo"))
 		r.SetTimestamp(timestamp)
-		r.AddAttributes(log.String("app.widget.name", "bar"))
+		r.AddAttributes(attribute.String("app.widget.name", "bar"))
 		l.Emit(t.Context(), r)
 
 		expected := `
@@ -44,9 +45,9 @@ func TestPrettyLogExporter(t *testing.T) {
 		l := p.Logger("test")
 
 		r := log.Record{}
-		r.SetBody(log.StringValue("foo"))
+		r.SetBody(attribute.StringValue("foo"))
 		r.SetTimestamp(timestamp)
-		r.AddAttributes(log.String("app.widget.name", "foobarbaz"))
+		r.AddAttributes(attribute.String("app.widget.name", "foobarbaz"))
 		l.Emit(t.Context(), r)
 
 		expected := `
@@ -62,7 +63,7 @@ func TestPrettyLogExporter(t *testing.T) {
 		l := p.Logger("test")
 
 		r := log.Record{}
-		r.SetBody(log.StringValue("foo"))
+		r.SetBody(attribute.StringValue("foo"))
 		r.SetTimestamp(timestamp)
 
 		r.SetSeverity(log.SeverityTrace)
@@ -97,19 +98,19 @@ func TestPrettyLogExporter(t *testing.T) {
 
 		{
 			r := log.Record{}
-			r.SetBody(log.StringValue("foo"))
+			r.SetBody(attribute.StringValue("foo"))
 			r.SetTimestamp(timestamp)
-			r.AddAttributes(log.Map("internal.otx.ingress",
-				log.String("method", "bar.baz"),
+			r.AddAttributes(attribute.Map("internal.otx.ingress",
+				attribute.String("method", "bar.baz"),
 			))
 			l.Emit(t.Context(), r)
 		}
 		{
 			r := log.Record{}
-			r.SetBody(log.StringValue("foo"))
+			r.SetBody(attribute.StringValue("foo"))
 			r.SetTimestamp(timestamp)
-			r.AddAttributes(log.Map("internal.otx.egress",
-				log.Int64("elapsed", int64(83*time.Second)),
+			r.AddAttributes(attribute.Map("internal.otx.egress",
+				attribute.Int64("elapsed", int64(83*time.Second)),
 			))
 			l.Emit(t.Context(), r)
 		}
@@ -134,25 +135,25 @@ func TestPrettyLogExporter(t *testing.T) {
 
 		{
 			r := log.Record{}
-			r.SetBody(log.StringValue("foo"))
+			r.SetBody(attribute.StringValue("foo"))
 			r.SetTimestamp(timestamp)
-			r.AddAttributes(log.Map("internal.otx.ingress",
-				log.String("method", "bar.baz"),
+			r.AddAttributes(attribute.Map("internal.otx.ingress",
+				attribute.String("method", "bar.baz"),
 			))
 			l.Emit(ctx, r)
 		}
 		{
 			r := log.Record{}
-			r.SetBody(log.StringValue("foo"))
+			r.SetBody(attribute.StringValue("foo"))
 			r.SetTimestamp(timestamp)
 			l.Emit(ctx, r)
 		}
 		{
 			r := log.Record{}
-			r.SetBody(log.StringValue("foo"))
+			r.SetBody(attribute.StringValue("foo"))
 			r.SetTimestamp(timestamp)
-			r.AddAttributes(log.Map("internal.otx.egress",
-				log.Int64("elapsed", int64(83*time.Second)),
+			r.AddAttributes(attribute.Map("internal.otx.egress",
+				attribute.Int64("elapsed", int64(83*time.Second)),
 			))
 			l.Emit(ctx, r)
 		}
@@ -170,14 +171,14 @@ type dumbIdGenerator struct{}
 
 func (g dumbIdGenerator) NewIDs(ctx context.Context) (trace.TraceID, trace.SpanID) {
 	return [16]byte{
-			0x1A, 0x1A, 0x1A, 0x1A,
-			0x1A, 0x1A, 0x1A, 0x1A,
-			0x1A, 0x1A, 0x1A, 0x1A,
-			0x1A, 0x1A, 0x1A, 0x1A,
-		}, [8]byte{
-			0x2B, 0x2B, 0x2B, 0x2B,
-			0x2B, 0x2B, 0x2B, 0x2B,
-		}
+		0x1A, 0x1A, 0x1A, 0x1A,
+		0x1A, 0x1A, 0x1A, 0x1A,
+		0x1A, 0x1A, 0x1A, 0x1A,
+		0x1A, 0x1A, 0x1A, 0x1A,
+	}, [8]byte{
+		0x2B, 0x2B, 0x2B, 0x2B,
+		0x2B, 0x2B, 0x2B, 0x2B,
+	}
 }
 
 func (g dumbIdGenerator) NewSpanID(ctx context.Context, traceID trace.TraceID) trace.SpanID {

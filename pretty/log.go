@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/fatih/color"
-	"go.opentelemetry.io/otel/log"
+	"go.opentelemetry.io/otel/attribute"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 )
@@ -80,7 +80,7 @@ func (e *LogExporter) Export(ctx context.Context, records []sdklog.Record) error
 		title := ""
 		body := r.Body().AsString()
 		kind := logKindUnknown
-		rest := make([]log.KeyValue, 0, r.AttributesLen())
+		rest := make([]attribute.KeyValue, 0, r.AttributesLen())
 
 		attr_http := kindHttpAttr{}
 		attr_grpc := kindGrpcAttr{}
@@ -92,7 +92,7 @@ func (e *LogExporter) Export(ctx context.Context, records []sdklog.Record) error
 		var otxMethod string
 		var otxElapsed int64
 
-		r.WalkAttributes(func(kv log.KeyValue) bool {
+		r.WalkAttributes(func(kv attribute.KeyValue) bool {
 			switch kv.Key {
 			case "app.widget.name":
 				title = kv.Value.AsString()
@@ -116,22 +116,22 @@ func (e *LogExporter) Export(ctx context.Context, records []sdklog.Record) error
 			case "span_id":
 				// skip
 
-			case string(semconv.NetworkPeerAddressKey):
+			case semconv.NetworkPeerAddressKey:
 				kind |= logKindServer
 				v := kv.Value.AsString()
 				attr_http.PeerAddr = v
 				attr_grpc.PeerAddr = v
 
-			case string(semconv.HTTPRequestMethodKey):
+			case semconv.HTTPRequestMethodKey:
 				kind |= logKindHttp
 				attr_http.Method = kv.Value.AsString()
-			case string(semconv.URLPathKey):
+			case semconv.URLPathKey:
 				kind |= logKindHttp | logKindServer
 				attr_http.Url = kv.Value.AsString()
-			case string(semconv.URLOriginalKey):
+			case semconv.URLOriginalKey:
 				kind |= logKindHttp | logKindClient
 				attr_http.Url = kv.Value.AsString()
-			case string(semconv.HTTPResponseStatusCodeKey):
+			case semconv.HTTPResponseStatusCodeKey:
 				kind |= logKindHttp | logKindRecv
 				attr_http.Code = kv.Value.AsInt64()
 			case "http.response.header.content-length":
@@ -141,25 +141,25 @@ func (e *LogExporter) Export(ctx context.Context, records []sdklog.Record) error
 					attr_http.HasBody = true
 					attr_http.BodySize = i
 				}
-			case string(semconv.HTTPResponseBodySizeKey):
+			case semconv.HTTPResponseBodySizeKey:
 				kind |= logKindHttp | logKindEnd
 				attr_http.HasBody = true
 				attr_http.BodySize = kv.Value.AsInt64()
 
-			case string(semconv.RPCServiceKey):
+			case semconv.RPCServiceKey:
 				kind |= logKindGrpc
 				attr_grpc.Service = kv.Value.AsString()
-			case string(semconv.RPCMethodKey):
+			case semconv.RPCMethodKey:
 				kind |= logKindGrpc
 				attr_grpc.Method = kv.Value.AsString()
-			case string(semconv.RPCGRPCStatusCodeKey):
+			case semconv.RPCGRPCStatusCodeKey:
 				kind |= logKindGrpc | logKindEnd
 				attr_grpc.Code = kv.Value.AsInt64()
-			case string(semconv.RPCMessageCompressedSizeKey):
+			case semconv.RPCMessageCompressedSizeKey:
 				kind |= logKindGrpc
 				attr_grpc.NotClientStream = true
 				attr_grpc.Bytes = kv.Value.AsInt64()
-			case string(semconv.RPCMessageUncompressedSizeKey):
+			case semconv.RPCMessageUncompressedSizeKey:
 				kind |= logKindGrpc
 				attr_grpc.NotClientStream = true
 				attr_grpc.Size = kv.Value.AsInt64()
@@ -289,7 +289,7 @@ func (e *LogExporter) ForceFlush(ctx context.Context) error {
 	return nil
 }
 
-func (*LogExporter) writeLogLine(w *bytes.Buffer, msg string, attrs []log.KeyValue) {
+func (*LogExporter) writeLogLine(w *bytes.Buffer, msg string, attrs []attribute.KeyValue) {
 	w.WriteString(msg)
 	if len(attrs) == 0 {
 		return
@@ -298,7 +298,7 @@ func (*LogExporter) writeLogLine(w *bytes.Buffer, msg string, attrs []log.KeyVal
 	w.WriteString(c_faint.Sprint(" -"))
 	for _, attr := range attrs {
 		w.WriteString(" ")
-		w.WriteString(attr.Key)
+		w.WriteString(string(attr.Key))
 		w.WriteString("=")
 
 		renderAttrValue(w, attr.Value)

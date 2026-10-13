@@ -3,28 +3,28 @@ package pretty
 import (
 	"io"
 
-	"go.opentelemetry.io/otel/log"
+	"go.opentelemetry.io/otel/attribute"
 )
 
-func renderAttrValue(o io.Writer, v log.Value) error {
+func renderAttrValue(o io.Writer, v attribute.Value) error {
 	const (
 		maxBytes = 8
 		maxSlice = 5
 		maxMap   = 5
 	)
 
-	c := attr_colors[v.Kind()]
-	switch v.Kind() {
-	case log.KindEmpty:
-	case log.KindBool,
-		log.KindInt64,
-		log.KindString:
+	c := attr_colors[v.Type()]
+	switch v.Type() {
+	case attribute.EMPTY:
+	case attribute.BOOL,
+		attribute.INT64,
+		attribute.STRING:
 		c.Fprint(o, v.String())
-	case log.KindFloat64:
+	case attribute.FLOAT64:
 		v := v.AsFloat64()
 		c.Fprintf(o, "%.[1]*g", 3, v)
-	case log.KindBytes:
-		bs := v.AsBytes()
+	case attribute.BYTESLICE:
+		bs := v.AsByteSlice()
 		n := len(bs)
 		if n > maxBytes {
 			n = maxBytes
@@ -38,8 +38,13 @@ func renderAttrValue(o io.Writer, v log.Value) error {
 		if len(bs) > maxBytes {
 			c.Fprintf(o, "..(+%d)", len(bs)-maxBytes)
 		}
-	case log.KindSlice:
-		vs := v.AsSlice()
+	// A slice of one type is a slice all the same, drawn as one of values.
+	case attribute.SLICE,
+		attribute.BOOLSLICE,
+		attribute.INT64SLICE,
+		attribute.FLOAT64SLICE,
+		attribute.STRINGSLICE:
+		vs := elems(v)
 		c_bracket.Fprint(o, "[")
 		n := len(vs)
 		if n > maxSlice {
@@ -55,7 +60,7 @@ func renderAttrValue(o io.Writer, v log.Value) error {
 			c_faint.Fprintf(o, ", ...(+%d)", len(vs)-maxSlice)
 		}
 		c_bracket.Fprint(o, "]")
-	case log.KindMap:
+	case attribute.MAP:
 		kvs := v.AsMap()
 		c_bracket.Fprint(o, "{")
 		n := len(kvs)
@@ -78,4 +83,30 @@ func renderAttrValue(o io.Writer, v log.Value) error {
 	}
 
 	return nil
+}
+
+// elems is a slice's values, whichever of attribute's slices it is: one of
+// values, or one of a single type, which the log API had none of.
+func elems(v attribute.Value) []attribute.Value {
+	switch v.Type() {
+	case attribute.BOOLSLICE:
+		return each(v.AsBoolSlice(), attribute.BoolValue)
+	case attribute.INT64SLICE:
+		return each(v.AsInt64Slice(), attribute.Int64Value)
+	case attribute.FLOAT64SLICE:
+		return each(v.AsFloat64Slice(), attribute.Float64Value)
+	case attribute.STRINGSLICE:
+		return each(v.AsStringSlice(), attribute.StringValue)
+	default:
+		return v.AsSlice()
+	}
+}
+
+func each[T any](vs []T, f func(T) attribute.Value) []attribute.Value {
+	rst := make([]attribute.Value, len(vs))
+	for i, v := range vs {
+		rst[i] = f(v)
+	}
+
+	return rst
 }

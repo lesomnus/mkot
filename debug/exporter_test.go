@@ -6,6 +6,7 @@ import (
 
 	"github.com/lesomnus/mkot"
 	"github.com/lesomnus/mkot/internal/x"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/log"
 )
 
@@ -33,7 +34,7 @@ func TestExporter(t *testing.T) {
 
 	record := log.Record{}
 	record.SetSeverity(log.SeverityWarn)
-	record.SetBody(log.StringValue("foo"))
+	record.SetBody(attribute.StringValue("foo"))
 
 	l := lp.Logger("")
 	l.Emit(ctx, record)
@@ -69,7 +70,7 @@ func TestExporterQueueFlushOnShutdown(t *testing.T) {
 	x.NoError(err)
 
 	record := log.Record{}
-	record.SetBody(log.StringValue("batched"))
+	record.SetBody(attribute.StringValue("batched"))
 	lp.Logger("").Emit(ctx, record)
 
 	err = resolver.Shutdown(ctx)
@@ -105,7 +106,7 @@ func TestExporterQueueSettingsImplyOptIn(t *testing.T) {
 	x.NoError(err)
 
 	record := log.Record{}
-	record.SetBody(log.StringValue("queued"))
+	record.SetBody(attribute.StringValue("queued"))
 	lp.Logger("").Emit(ctx, record)
 
 	// Batched: not on disk yet; the shutdown flush delivers it.

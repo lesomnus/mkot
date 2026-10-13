@@ -2,7 +2,7 @@ package pretty
 
 import (
 	"github.com/fatih/color"
-	"go.opentelemetry.io/otel/log"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 var (
@@ -76,15 +76,19 @@ var (
 	c_bracket = color.New(color.FgWhite, color.Faint)
 	c_map_key = color.RGB(180, 160, 100) // rgb(180, 160, 100) - Muted Gold
 
-	attr_colors = map[log.Kind]*color.Color{
-		log.KindBool:    color.RGB(50, 100, 100), // rgb(50, 100, 100) - Dark Muted Cyan
-		log.KindFloat64: color.RGB(129, 76, 129), // rgb(129, 76, 129) - Dark Muted Purple
-		log.KindInt64:   color.RGB(129, 76, 129), // rgb(129, 76, 129) - Dark Muted Purple
-		log.KindString:  color.RGB(120, 110, 60), // rgb(120, 110, 60) - Dark Muted Gold
+	attr_colors = map[attribute.Type]*color.Color{
+		attribute.BOOL:    color.RGB(50, 100, 100), // rgb(50, 100, 100) - Dark Muted Cyan
+		attribute.FLOAT64: color.RGB(129, 76, 129), // rgb(129, 76, 129) - Dark Muted Purple
+		attribute.INT64:   color.RGB(129, 76, 129), // rgb(129, 76, 129) - Dark Muted Purple
+		attribute.STRING:  color.RGB(120, 110, 60), // rgb(120, 110, 60) - Dark Muted Gold
 
-		log.KindEmpty: c_faint,
-		log.KindBytes: c_faint,
-		log.KindSlice: c_faint,
-		log.KindMap:   c_faint,
+		attribute.EMPTY:        c_faint,
+		attribute.BYTESLICE:    c_faint,
+		attribute.SLICE:        c_faint,
+		attribute.BOOLSLICE:    c_faint,
+		attribute.INT64SLICE:   c_faint,
+		attribute.FLOAT64SLICE: c_faint,
+		attribute.STRINGSLICE:  c_faint,
+		attribute.MAP:          c_faint,
 	}
 )

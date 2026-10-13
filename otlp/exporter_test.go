@@ -15,6 +15,7 @@ import (
 	"github.com/lesomnus/mkot"
 	"github.com/lesomnus/mkot/internal/x"
 	"github.com/lesomnus/mkot/opaque"
+	"go.opentelemetry.io/otel/attribute"
 	olog "go.opentelemetry.io/otel/log"
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
@@ -287,7 +288,7 @@ func emitter(ctx context.Context, r mkot.Resolver, signal string) (func(), error
 		}
 		return func() {
 			var rec olog.Record
-			rec.SetBody(olog.StringValue("b"))
+			rec.SetBody(attribute.StringValue("b"))
 			lp.Logger("test").Emit(ctx, rec)
 		}, nil
 	}
@@ -863,7 +864,7 @@ providers:
 	x.NoError(err)
 
 	var rec olog.Record
-	rec.SetBody(olog.StringValue("mkot.test.log"))
+	rec.SetBody(attribute.StringValue("mkot.test.log"))
 	lp.Logger("test").Emit(ctx, rec)
 	err = r.Shutdown(context.Background())
 	x.NoError(err)

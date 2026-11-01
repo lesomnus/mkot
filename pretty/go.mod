@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/fatih/color v1.19.0
-	github.com/lesomnus/mkot v0.0.0-20261013182004-e805f03ff358
+	github.com/lesomnus/mkot v0.0.0-20261017184153-a69c4c1f08ca
 	github.com/stretchr/testify v1.12.1
 	go.opentelemetry.io/otel v1.47.0
 	go.opentelemetry.io/otel/log v1.47.0

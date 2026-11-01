@@ -3,8 +3,8 @@ module github.com/lesomnus/mkot/prometheus
 go 1.26.2
 
 require (
-	github.com/lesomnus/mkot v0.0.0-20261013182004-e805f03ff358
-	github.com/prometheus/client_golang v1.24.1
+	github.com/lesomnus/mkot v0.0.0-20261017184153-a69c4c1f08ca
+	github.com/prometheus/client_golang v1.25.0
 	go.opentelemetry.io/otel/exporters/prometheus v0.69.0
 	go.opentelemetry.io/otel/sdk/metric v1.47.0
 )

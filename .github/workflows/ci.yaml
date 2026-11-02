@@ -20,7 +20,7 @@ jobs:
         # GOWORK=off each module resolves its own go.mod, catching that skew.
         module: [".", "mkotx", "otlp", "pretty", "prometheus"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v5
         with:
           go-version-file: ${{ matrix.module }}/go.mod

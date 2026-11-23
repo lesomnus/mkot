@@ -17,8 +17,8 @@ github.com/klauspost/compress v1.20.1 h1:T7kKElXUMXrUJ2E9QhQhxFtcK5rPyLdsGZvdbLM
 github.com/klauspost/compress v1.20.1/go.mod h1:LUdAzn7YLVvxLpc7y3V1m40wESHTgc1422pwwBSKYuI=
 github.com/kylelemons/godebug v1.1.0 h1:RPNrshWIDI6G2gRW9EHilWtl7Z6Sb1BR0xunSBf0SNc=
 github.com/kylelemons/godebug v1.1.0/go.mod h1:9/0rRGxNHcop5bhtWyNeEfOS8JIWk580+fNqagV/RAw=
-github.com/lesomnus/mkot v0.0.0-20261109051210-adf1656dc93b h1:6KAgm04x5bWjcsJzu9qi1JKAYfACTXHHlSqzBAowGqk=
-github.com/lesomnus/mkot v0.0.0-20261109051210-adf1656dc93b/go.mod h1:g5UbjQTLO4FPAqekFLHPhoKupAJoM7AVqlz3qYfhePA=
+github.com/lesomnus/mkot v0.0.0-20261116004612-c43b84a5367d h1:Ob/Rl2Ev+2YVowq8CU/LwqLfaySbnC5hNwQuD7vH5eY=
+github.com/lesomnus/mkot v0.0.0-20261116004612-c43b84a5367d/go.mod h1:g5UbjQTLO4FPAqekFLHPhoKupAJoM7AVqlz3qYfhePA=
 github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 h1:C3w9PqII01/Oq1c1nUAm88MOHcQC9l5mIlSMApZMrHA=
 github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822/go.mod h1:+n7T8mK8HuQTcFwEeznm/DIxMOiR9yIdICNftLE1DvQ=
 github.com/prometheus/client_golang v1.25.0 h1:cDtW1TcFsMi1RJc8khwCKB4VhzwV04aKqbYtNOXuiK0=

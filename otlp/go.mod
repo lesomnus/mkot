@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/goccy/go-yaml v1.19.2
-	github.com/lesomnus/mkot v0.0.0-20261109051210-adf1656dc93b
+	github.com/lesomnus/mkot v0.0.0-20261116004612-c43b84a5367d
 	go.opentelemetry.io/otel v1.47.0
 	go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc v0.23.0
 	go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp v0.23.0
